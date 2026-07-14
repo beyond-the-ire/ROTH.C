@@ -1,0 +1,15 @@
+# build outputs
+roth_c/build/
+roth_c/build-vanilla/
+roth_c/roth-host-imgfree
+roth_c/roth-host-vanilla
+roth_c/dist/
+roth_c/src/platform/viewer/roth-view
+roth_c/src/platform/viewer/roth-inject
+*.o
+
+# the one-time local SDL3 build (tools/build_sdl3_i386.sh creates this)
+roth_c/third_party/
+
+# built example plugins (sources are tracked; binaries are not)
+sdk/examples/*/plugin.so

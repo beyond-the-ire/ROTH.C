@@ -1,0 +1,75 @@
+# CI: the SDK's consistency gates + both engine build flavors, on every push/PR.
+# No game files are involved — CI proves the build and the ABI guarantees, not gameplay.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Fast job: the SDK's mechanical guarantees (generated-file drift, ID permanence,
+  # ABI append-only policy, exposure order, i386 layout probe, override-target
+  # validation) plus the two teaching example plugins.
+  sdk-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install a 32-bit-capable compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib python3
+
+      - name: SDK gates
+        run: make -C sdk check
+
+      - name: Build the teaching example plugins
+        run: |
+          make -C sdk/examples/hello
+          make -C sdk/examples/wraptest
+
+  # Full engine build: both flavors, with the link-time self-checks
+  # (nm-clean assertion; pads present in moddable, absent in vanilla).
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable i386 packages
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get install -y gcc-multilib python3 cmake git pkg-config \
+            libx11-dev:i386 libxext-dev:i386 libxrandr-dev:i386 libxi-dev:i386 \
+            libasound2-dev:i386 libpulse-dev:i386
+          # SDL's build auto-skips backends whose dev packages aren't available for
+          # i386 on the runner (e.g. PipeWire); audio still works via ALSA/Pulse.
+
+      - name: Cache the 32-bit SDL3 build
+        id: sdl-cache
+        uses: actions/cache@v4
+        with:
+          path: roth_c/third_party
+          key: sdl3-i386-${{ runner.os }}-${{ hashFiles('tools/build_sdl3_i386.sh') }}
+
+      - name: Build 32-bit SDL3 (cache miss only)
+        if: steps.sdl-cache.outputs.cache-hit != 'true'
+        run: tools/build_sdl3_i386.sh
+
+      - name: Build the moddable engine
+        run: make -C roth_c
+
+      - name: Build the vanilla engine
+        run: make -C roth_c FLAVOR=vanilla
+
+      - name: Upload binaries (workflow artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-binaries
+          path: |
+            roth_c/roth
+            roth_c/roth-vanilla

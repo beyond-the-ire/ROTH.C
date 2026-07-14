@@ -1,0 +1,64 @@
+# Release: on a version tag (v*), build and attach two artifacts to a GitHub Release:
+#   1. the player bundle  — ROTH.C-<tag>-linux-x86.tar.gz (drop into the game's ROTH
+#      directory next to the game files and run ./roth; no other setup)
+#   2. the SDK tarball    — roth-sdk-<tag>.tar.gz for mod authors (headers, schemas,
+#      the modding guide, and the teaching examples)
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the release + upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable i386 packages
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get install -y gcc-multilib python3 cmake git pkg-config \
+            libx11-dev:i386 libxext-dev:i386 libxrandr-dev:i386 libxi-dev:i386 \
+            libasound2-dev:i386 libpulse-dev:i386
+
+      - name: Cache the 32-bit SDL3 build
+        id: sdl-cache
+        uses: actions/cache@v4
+        with:
+          path: roth_c/third_party
+          key: sdl3-i386-${{ runner.os }}-${{ hashFiles('tools/build_sdl3_i386.sh') }}
+
+      - name: Build 32-bit SDL3 (cache miss only)
+        if: steps.sdl-cache.outputs.cache-hit != 'true'
+        run: tools/build_sdl3_i386.sh
+
+      - name: Verify the SDK gates before releasing
+        run: make -C sdk check
+
+      - name: Build the release bundle
+        run: make -C roth_c dist
+
+      - name: Package the artifacts
+        run: |
+          set -e
+          staging="ROTH.C-${GITHUB_REF_NAME}-linux-x86"
+          cp -r roth_c/dist "$staging"
+          tar -czf "$staging.tar.gz" "$staging"
+          tar -czf "roth-sdk-${GITHUB_REF_NAME}.tar.gz" sdk
+          ls -l *.tar.gz
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ROTH.C-*-linux-x86.tar.gz
+            roth-sdk-*.tar.gz
+          generate_release_notes: true

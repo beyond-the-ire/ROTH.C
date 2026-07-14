@@ -1,0 +1,97 @@
+{
+ "schema": "roth-sdk/functions_skipped/v1",
+ "note": "engine.h prototypes with NO canonical corpus VA: host-harness helpers, ABI-register wrappers, mid-entries, standalone-only shims. Recorded for honesty and CI stability; never assigned an id.",
+ "count": 18,
+ "skipped": [
+  {
+   "name": "call_orig_raw",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "call_orig",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "call_orig_far",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "floorceil_fill_dispatch",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "sprite_span_setup_39bd2",
+   "ret": "span_dispatch_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "rwss_sprite_side_entry",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "rwss_sprite_body_entry",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "step_mode_inc",
+   "ret": "uint32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "step_mode_sub_clamp",
+   "ret": "uint32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "step_mode_add",
+   "ret": "uint32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "step_mode_xor",
+   "ret": "uint32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "run_command_chain",
+   "ret": "int32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "texture_anim_command_hook",
+   "ret": "uint32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "texture_id_remap_hook",
+   "ret": "uint32_t",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  },
+  {
+   "name": "eval_or_queue_reg",
+   "ret": "int32_t",
+   "reason": "references corpus VA 0x1daea (eval_or_queue_dialogue_record_commands) already owned by an exact-name match \u2014 wrapper/mid-entry/shim, not another name for that VA"
+  },
+  {
+   "name": "eval_dialogue_record_condition_reg",
+   "ret": "int32_t",
+   "reason": "references corpus VA 0x1db89 (eval_dialogue_record_condition_with_cleanup) already owned by an exact-name match \u2014 wrapper/mid-entry/shim, not another name for that VA"
+  },
+  {
+   "name": "gdv_inspect_frame_callback",
+   "ret": "uint32_t",
+   "reason": "references corpus VA 0x18cb9 (free_inspect_overlay_image) already owned by an exact-name match \u2014 wrapper/mid-entry/shim, not another name for that VA"
+  },
+  {
+   "name": "play_distance_variant_sound_regs",
+   "ret": "void",
+   "reason": "no corpus VA (host-harness or standalone-only alt-entry)"
+  }
+ ]
+}

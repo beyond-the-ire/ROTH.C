@@ -1,0 +1,1232 @@
+{
+ "schema": "roth-sdk/abi_descriptor/v1",
+ "note": "Machine ABI descriptor: i386 struct field offsets/sizes, API-table slot order, and signature ids. tools/sdk_check.py diffs this against sdk/abi/released/ and enforces the bump policy (identical=ok, append-only=minor, otherwise=major).",
+ "sdk_major": 0,
+ "sdk_minor": 4,
+ "abi_major": 0,
+ "abi_minor": 4,
+ "arch": "i386",
+ "ptr_size": 4,
+ "structs": {
+  "roth_api_v1": {
+   "size": 20,
+   "fields": [
+    {
+     "name": "abi_major",
+     "offset": 0,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "abi_minor",
+     "offset": 2,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "struct_size",
+     "offset": 4,
+     "size": 4,
+     "kind": "uint32"
+    },
+    {
+     "name": "engine",
+     "offset": 8,
+     "size": 4,
+     "kind": "ptr",
+     "points_to": "roth_engine_api_v1"
+    },
+    {
+     "name": "game_ram",
+     "offset": 12,
+     "size": 4,
+     "kind": "ptr",
+     "points_to": "roth_game_ram_api_v1"
+    },
+    {
+     "name": "plugin_dir",
+     "offset": 16,
+     "size": 4,
+     "kind": "fnptr"
+    }
+   ]
+  },
+  "roth_engine_api_v1": {
+   "size": 88,
+   "fields": [
+    {
+     "slot": 0,
+     "name": "clear_framebuffer_rect",
+     "id": 77034,
+     "va": "0x12cea",
+     "signature_id": 77034,
+     "offset": 0,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 1,
+     "name": "save_framebuffer_region",
+     "id": 77922,
+     "va": "0x13062",
+     "signature_id": 77922,
+     "offset": 4,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t *"
+     ]
+    },
+    {
+     "slot": 2,
+     "name": "blit_item_icon",
+     "id": 79172,
+     "va": "0x13544",
+     "signature_id": 79172,
+     "offset": 8,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 3,
+     "name": "draw_text_to_buffer",
+     "id": 85252,
+     "va": "0x14d04",
+     "signature_id": 85252,
+     "offset": 12,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 4,
+     "name": "register_dirty_rect",
+     "id": 88923,
+     "va": "0x15b5b",
+     "signature_id": 88923,
+     "offset": 16,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "int32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 5,
+     "name": "screen_xy_to_framebuffer_ptr",
+     "id": 98368,
+     "va": "0x18040",
+     "signature_id": 98368,
+     "offset": 20,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint8_t *",
+     "params": [
+      "int32_t",
+      "int32_t"
+     ]
+    },
+    {
+     "slot": 6,
+     "name": "load_item_icon_resource",
+     "id": 98666,
+     "va": "0x1816a",
+     "signature_id": 98666,
+     "offset": 24,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 7,
+     "name": "copy_record_block_op7",
+     "id": 99659,
+     "va": "0x1854b",
+     "signature_id": 99659,
+     "offset": 28,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 8,
+     "name": "load_das_cache_resource",
+     "id": 99995,
+     "va": "0x1869b",
+     "signature_id": 99995,
+     "offset": 32,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 9,
+     "name": "blit_das_image_auto_scale",
+     "id": 101960,
+     "va": "0x18e48",
+     "signature_id": 101960,
+     "offset": 36,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 10,
+     "name": "blit_reloc_das_image",
+     "id": 101992,
+     "va": "0x18e68",
+     "signature_id": 101992,
+     "offset": 40,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 11,
+     "name": "draw_text_at_screen_xy",
+     "id": 106617,
+     "va": "0x1a079",
+     "signature_id": 106617,
+     "offset": 44,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 12,
+     "name": "blit_das_image_at_xy",
+     "id": 106762,
+     "va": "0x1a10a",
+     "signature_id": 106762,
+     "offset": 48,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "int32_t",
+      "int32_t"
+     ]
+    },
+    {
+     "slot": 13,
+     "name": "resolve_reloc_record_fields",
+     "id": 114795,
+     "va": "0x1c06b",
+     "signature_id": 114795,
+     "offset": 52,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "int32_t *",
+      "int32_t *",
+      "uint32_t",
+      "uint8_t"
+     ]
+    },
+    {
+     "slot": 14,
+     "name": "give_item",
+     "id": 118492,
+     "va": "0x1cedc",
+     "signature_id": 118492,
+     "offset": 56,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 15,
+     "name": "read_next_dialogue_line",
+     "id": 125132,
+     "va": "0x1e8cc",
+     "signature_id": 125132,
+     "offset": 60,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t",
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 16,
+     "name": "measure_control_text_width",
+     "id": 129311,
+     "va": "0x1f91f",
+     "signature_id": 129311,
+     "offset": 64,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "int32_t",
+     "params": [
+      "const char *"
+     ]
+    },
+    {
+     "slot": 17,
+     "name": "build_available_choice_menu",
+     "id": 129360,
+     "va": "0x1f950",
+     "signature_id": 129360,
+     "offset": 68,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 18,
+     "name": "resolve_reloc_ptr",
+     "id": 140998,
+     "va": "0x226c6",
+     "signature_id": 140998,
+     "offset": 72,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 19,
+     "name": "pool_free_handle",
+     "id": 221363,
+     "va": "0x360b3",
+     "signature_id": 221363,
+     "offset": 76,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t *",
+      "uint32_t *"
+     ]
+    },
+    {
+     "slot": 20,
+     "name": "dos_open_file",
+     "id": 269029,
+     "va": "0x41ae5",
+     "signature_id": 269029,
+     "offset": 80,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 21,
+     "name": "dos_close_handle",
+     "id": 269121,
+     "va": "0x41b41",
+     "signature_id": 269121,
+     "offset": 84,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t"
+     ]
+    }
+   ]
+  },
+  "roth_game_ram_api_v1": {
+   "size": 40,
+   "fields": [
+    {
+     "slot": 0,
+     "name": "u8",
+     "offset": 0,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint8_t",
+     "params": [
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 1,
+     "name": "u16",
+     "offset": 4,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint16_t",
+     "params": [
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 2,
+     "name": "u32",
+     "offset": 8,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": [
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 3,
+     "name": "set_u8",
+     "offset": 12,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint8_t"
+     ]
+    },
+    {
+     "slot": 4,
+     "name": "set_u16",
+     "offset": 16,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint16_t"
+     ]
+    },
+    {
+     "slot": 5,
+     "name": "set_u32",
+     "offset": 20,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void",
+     "params": [
+      "uint32_t",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 6,
+     "name": "read_block",
+     "offset": 24,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "int",
+     "params": [
+      "uint32_t",
+      "void *",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 7,
+     "name": "write_block",
+     "offset": 28,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "int",
+     "params": [
+      "uint32_t",
+      "const void *",
+      "uint32_t"
+     ]
+    },
+    {
+     "slot": 8,
+     "name": "size",
+     "offset": 32,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "uint32_t",
+     "params": []
+    },
+    {
+     "slot": 9,
+     "name": "to_ptr",
+     "offset": 36,
+     "size": 4,
+     "kind": "fnptr",
+     "ret": "void *",
+     "params": [
+      "uint32_t"
+     ]
+    }
+   ]
+  },
+  "roth_mouse_poll_v1": {
+   "size": 16,
+   "fields": [
+    {
+     "name": "ax",
+     "type": "uint16_t",
+     "offset": 0,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "ebx",
+     "type": "uint32_t",
+     "offset": 4,
+     "size": 4,
+     "kind": "uint32"
+    },
+    {
+     "name": "ecx",
+     "type": "uint32_t",
+     "offset": 8,
+     "size": 4,
+     "kind": "uint32"
+    },
+    {
+     "name": "edx",
+     "type": "uint32_t",
+     "offset": 12,
+     "size": 4,
+     "kind": "uint32"
+    }
+   ]
+  },
+  "roth_plugin_info_v1": {
+   "size": 64,
+   "fields": [
+    {
+     "name": "abi_major",
+     "type": "uint16_t",
+     "offset": 0,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "abi_minor",
+     "type": "uint16_t",
+     "offset": 2,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "struct_size",
+     "type": "uint32_t",
+     "offset": 4,
+     "size": 4,
+     "kind": "uint32"
+    },
+    {
+     "name": "id",
+     "type": "const char *",
+     "offset": 8,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "name",
+     "type": "const char *",
+     "offset": 12,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "version",
+     "type": "const char *",
+     "offset": 16,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "sdk_req_major",
+     "type": "uint16_t",
+     "offset": 20,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "sdk_req_minor",
+     "type": "uint16_t",
+     "offset": 22,
+     "size": 2,
+     "kind": "uint16"
+    },
+    {
+     "name": "api_use",
+     "type": "uint32_t",
+     "offset": 24,
+     "size": 4,
+     "kind": "uint32"
+    },
+    {
+     "name": "on_load",
+     "type": "roth_on_load_main_fn",
+     "offset": 28,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_game_ram_ready",
+     "type": "roth_on_game_ram_ready_main_fn",
+     "offset": 32,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_frame_game",
+     "type": "roth_on_frame_game_fn",
+     "offset": 36,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_compose_tick",
+     "type": "roth_on_compose_tick_isr_fn",
+     "offset": 40,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_audio",
+     "type": "roth_on_audio_fn",
+     "offset": 44,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_unload",
+     "type": "roth_on_unload_main_fn",
+     "offset": 48,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_register_overrides",
+     "type": "roth_on_register_overrides_main_fn",
+     "offset": 52,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_scancode",
+     "type": "roth_on_scancode_tick_isr_fn",
+     "offset": 56,
+     "size": 4,
+     "kind": "fnptr"
+    },
+    {
+     "name": "on_mouse_poll",
+     "type": "roth_on_mouse_poll_game_fn",
+     "offset": 60,
+     "size": 4,
+     "kind": "fnptr"
+    }
+   ]
+  },
+  "roth_registrar_v1": {
+   "size": 8,
+   "fields": [
+    {
+     "name": "struct_size",
+     "offset": 0,
+     "size": 4,
+     "kind": "uint32"
+    },
+    {
+     "name": "override",
+     "offset": 4,
+     "size": 4,
+     "kind": "fnptr"
+    }
+   ]
+  },
+  "roth_chain": {
+   "size": 20,
+   "fields": [
+    {
+     "name": "slots",
+     "offset": 0,
+     "size": 4,
+     "kind": "ptr"
+    },
+    {
+     "name": "n",
+     "offset": 4,
+     "size": 4,
+     "kind": "int"
+    },
+    {
+     "name": "cursor",
+     "offset": 8,
+     "size": 4,
+     "kind": "int"
+    },
+    {
+     "name": "base",
+     "offset": 12,
+     "size": 4,
+     "kind": "ptr"
+    },
+    {
+     "name": "api",
+     "offset": 16,
+     "size": 4,
+     "kind": "ptr",
+     "points_to": "roth_api_v1"
+    }
+   ]
+  }
+ },
+ "engine_table": [
+  {
+   "slot": 0,
+   "name": "clear_framebuffer_rect",
+   "id": 77034,
+   "va": "0x12cea",
+   "signature_id": 77034,
+   "offset": 0,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 1,
+   "name": "save_framebuffer_region",
+   "id": 77922,
+   "va": "0x13062",
+   "signature_id": 77922,
+   "offset": 4,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t *"
+   ]
+  },
+  {
+   "slot": 2,
+   "name": "blit_item_icon",
+   "id": 79172,
+   "va": "0x13544",
+   "signature_id": 79172,
+   "offset": 8,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 3,
+   "name": "draw_text_to_buffer",
+   "id": 85252,
+   "va": "0x14d04",
+   "signature_id": 85252,
+   "offset": 12,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 4,
+   "name": "register_dirty_rect",
+   "id": 88923,
+   "va": "0x15b5b",
+   "signature_id": 88923,
+   "offset": 16,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "int32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 5,
+   "name": "screen_xy_to_framebuffer_ptr",
+   "id": 98368,
+   "va": "0x18040",
+   "signature_id": 98368,
+   "offset": 20,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint8_t *",
+   "params": [
+    "int32_t",
+    "int32_t"
+   ]
+  },
+  {
+   "slot": 6,
+   "name": "load_item_icon_resource",
+   "id": 98666,
+   "va": "0x1816a",
+   "signature_id": 98666,
+   "offset": 24,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 7,
+   "name": "copy_record_block_op7",
+   "id": 99659,
+   "va": "0x1854b",
+   "signature_id": 99659,
+   "offset": 28,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 8,
+   "name": "load_das_cache_resource",
+   "id": 99995,
+   "va": "0x1869b",
+   "signature_id": 99995,
+   "offset": 32,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 9,
+   "name": "blit_das_image_auto_scale",
+   "id": 101960,
+   "va": "0x18e48",
+   "signature_id": 101960,
+   "offset": 36,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 10,
+   "name": "blit_reloc_das_image",
+   "id": 101992,
+   "va": "0x18e68",
+   "signature_id": 101992,
+   "offset": 40,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 11,
+   "name": "draw_text_at_screen_xy",
+   "id": 106617,
+   "va": "0x1a079",
+   "signature_id": 106617,
+   "offset": 44,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 12,
+   "name": "blit_das_image_at_xy",
+   "id": 106762,
+   "va": "0x1a10a",
+   "signature_id": 106762,
+   "offset": 48,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "int32_t",
+    "int32_t"
+   ]
+  },
+  {
+   "slot": 13,
+   "name": "resolve_reloc_record_fields",
+   "id": 114795,
+   "va": "0x1c06b",
+   "signature_id": 114795,
+   "offset": 52,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "int32_t *",
+    "int32_t *",
+    "uint32_t",
+    "uint8_t"
+   ]
+  },
+  {
+   "slot": 14,
+   "name": "give_item",
+   "id": 118492,
+   "va": "0x1cedc",
+   "signature_id": 118492,
+   "offset": 56,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 15,
+   "name": "read_next_dialogue_line",
+   "id": 125132,
+   "va": "0x1e8cc",
+   "signature_id": 125132,
+   "offset": 60,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t",
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 16,
+   "name": "measure_control_text_width",
+   "id": 129311,
+   "va": "0x1f91f",
+   "signature_id": 129311,
+   "offset": 64,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "int32_t",
+   "params": [
+    "const char *"
+   ]
+  },
+  {
+   "slot": 17,
+   "name": "build_available_choice_menu",
+   "id": 129360,
+   "va": "0x1f950",
+   "signature_id": 129360,
+   "offset": 68,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 18,
+   "name": "resolve_reloc_ptr",
+   "id": 140998,
+   "va": "0x226c6",
+   "signature_id": 140998,
+   "offset": 72,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 19,
+   "name": "pool_free_handle",
+   "id": 221363,
+   "va": "0x360b3",
+   "signature_id": 221363,
+   "offset": 76,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t *",
+    "uint32_t *"
+   ]
+  },
+  {
+   "slot": 20,
+   "name": "dos_open_file",
+   "id": 269029,
+   "va": "0x41ae5",
+   "signature_id": 269029,
+   "offset": 80,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 21,
+   "name": "dos_close_handle",
+   "id": 269121,
+   "va": "0x41b41",
+   "signature_id": 269121,
+   "offset": 84,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t"
+   ]
+  }
+ ],
+ "game_ram_table": [
+  {
+   "slot": 0,
+   "name": "u8",
+   "offset": 0,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint8_t",
+   "params": [
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 1,
+   "name": "u16",
+   "offset": 4,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint16_t",
+   "params": [
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 2,
+   "name": "u32",
+   "offset": 8,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": [
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 3,
+   "name": "set_u8",
+   "offset": 12,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint8_t"
+   ]
+  },
+  {
+   "slot": 4,
+   "name": "set_u16",
+   "offset": 16,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint16_t"
+   ]
+  },
+  {
+   "slot": 5,
+   "name": "set_u32",
+   "offset": 20,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void",
+   "params": [
+    "uint32_t",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 6,
+   "name": "read_block",
+   "offset": 24,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "int",
+   "params": [
+    "uint32_t",
+    "void *",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 7,
+   "name": "write_block",
+   "offset": 28,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "int",
+   "params": [
+    "uint32_t",
+    "const void *",
+    "uint32_t"
+   ]
+  },
+  {
+   "slot": 8,
+   "name": "size",
+   "offset": 32,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "uint32_t",
+   "params": []
+  },
+  {
+   "slot": 9,
+   "name": "to_ptr",
+   "offset": 36,
+   "size": 4,
+   "kind": "fnptr",
+   "ret": "void *",
+   "params": [
+    "uint32_t"
+   ]
+  }
+ ],
+ "contexts": [
+  {
+   "name": "ROTH_CTX_MAIN",
+   "value": 0,
+   "desc": "boot / main thread: discovery, validation, patching \u2014 all before the timer/game/audio threads start"
+  },
+  {
+   "name": "ROTH_CTX_GAME",
+   "value": 1,
+   "desc": "game thread: per-frame logic; engine calls are legal here"
+  },
+  {
+   "name": "ROTH_CTX_TICK_ISR",
+   "value": 2,
+   "desc": "timer-tick / compositor context (was the SIGALRM ISR): restricted API view, no engine calls"
+  },
+  {
+   "name": "ROTH_CTX_AUDIO",
+   "value": 3,
+   "desc": "audio callback context: restricted API view"
+  }
+ ]
+}

@@ -1,0 +1,71 @@
+ROTH.C — License Notice
+
+This repository contains two kinds of material under two different terms.
+
+
+PART 1 — THE RECONSTRUCTED ENGINE
+(roth_c/src/engine/, roth_c/src/data/, and docs/reference/)
+
+These files are a reconstruction, in C, of the behavior of the engine of the 1996 game
+"Realms of the Haunting". They were produced by studying the game's original executable and
+are, by nature, a derivative representation of that program's design and behavior. The
+copyright in the underlying game and its program remains with its rights holders; nothing in
+this repository grants, transfers, or diminishes any of their rights.
+
+This material is published for the purposes of preservation, study, and interoperability —
+enabling lawfully obtained copies of the game to run on modern systems. It is provided in the
+spirit of long-standing community practice around the preservation of historical software.
+
+  - No game assets are included. The game's content files (graphics, sounds, maps, text,
+    music, videos) are not in this repository or its releases and must be obtained from a
+    lawfully acquired copy of the game.
+  - No warranty of any kind is provided.
+  - Redistribution of this material should preserve this notice.
+  - If you are a rights holder of "Realms of the Haunting" and have concerns about this
+    repository, please open an issue or contact the repository maintainers; concerns will be
+    addressed promptly and in good faith.
+
+No license under the rights holders' copyrights is granted or implied. To play the game you
+must own it.
+
+
+PART 2 — THE ORIGINAL WORK
+(roth_c/src/platform/, sdk/, tools/, and the repository's build files and documentation,
+except where Part 1 applies)
+
+The native platform layer, the modding SDK (including its headers, schemas, and examples),
+the tooling, and the documentation are original work, licensed under the MIT License:
+
+  MIT License
+
+  Copyright (c) The ROTH.C contributors
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this
+  software and associated documentation files (the "Software"), to deal in the Software
+  without restriction, including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
+  to whom the Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all copies or
+  substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+  PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+  FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+  OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+In particular, this means mods may be written against the SDK (sdk/) and distributed freely,
+commercially or otherwise, without further permission.
+
+
+THIRD-PARTY MATERIAL
+
+Release bundles may include third-party components under their own licenses: SDL 3 (zlib
+license) and the GeneralUser GS SoundFont by S. Christian Collins (its own license, permitting
+redistribution). Their license texts accompany the bundles where required.
+
+"Realms of the Haunting" and associated marks are the property of their respective owners.
+This project is not affiliated with, endorsed by, or connected to the game's developers,
+publishers, or rights holders.

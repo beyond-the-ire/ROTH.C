@@ -1,0 +1,122 @@
+{
+ "schema": "roth-sdk/sdk_api/v1",
+ "note": "HAND-CURATED source of truth for the non-engine SDK surface: version constants, the API-table struct shape, the game_ram accessor set (v1.1 design 10.6), and the context-tagged lifecycle callbacks (10.4). Kept deliberately MINIMAL for v0.1 (SDK foundation): no loader, no override chains, no fingerprints yet. This schema GROWS with the loader milestone. tools/sdk_gen.py turns it (plus functions.json) into sdk/include/roth_sdk.h and sdk/abi/descriptor.json.",
+
+ "version": {
+  "sdk_major": 0,
+  "sdk_minor": 5,
+  "abi_major": 0,
+  "abi_minor": 5,
+  "load_rule": "A plugin loads iff abi_major == host.abi_major AND abi_minor <= host.abi_minor. Additive growth = minor bump; any breaking change = major bump. CI (tools/sdk_check.py) enforces the bump against sdk/abi/released/. THE EXPOSED-ORDER LAW (coordinator ruling 2026-07-11, fixing review finding 9 structurally): the engine-call table's slot order = EXPOSURE ORDER — the ordered STARTER_SET list in tools/sdk_extract_signatures.py IS the table order, frozen as ABI; new exposures are APPENDED at its end, so existing slot offsets never move and every exposure is a true append-only minor bump, forever. CI gate 'exposure-order' enforces prefix-stability of the table against the released baseline (a re-sort/insert/removal fails hard; no version bump excuses it). v0.5 (two-flavor ruling / doc_viewer runtime-plugin port, task #103) appends two engine slots at the tail — blit_das_image_to_buffer (0x1325b, slot 22) and draw_popup_shadow_border_smc (0x12dde, slot 23), both proven reuse points in sdk/examples/doc_viewer — growing the exposed set 22 -> 24 with the v0.4 slots byte-identical. v0.4 APPENDED (all trailing): game_ram->to_ptr, struct roth_mouse_poll_v1, the on_scancode/on_mouse_poll seam callbacks, and roth_api_v1->plugin_dir()."
+ },
+
+ "contexts": {
+  "note": "Platform-neutral execution contexts (design 10.4) — SDK LAW. Every callback is context-suffixed; restricted contexts get a restricted API view; functions reachable from TICK_ISR are non-overrideable in v1. Enumerators are FROZEN (ABI): never renumber.",
+  "enum_name": "roth_context",
+  "values": [
+   {"name": "ROTH_CTX_MAIN",     "value": 0, "desc": "boot / main thread: discovery, validation, patching — all before the timer/game/audio threads start"},
+   {"name": "ROTH_CTX_GAME",     "value": 1, "desc": "game thread: per-frame logic; engine calls are legal here"},
+   {"name": "ROTH_CTX_TICK_ISR", "value": 2, "desc": "timer-tick / compositor context: restricted API view, no engine calls"},
+   {"name": "ROTH_CTX_AUDIO",    "value": 3, "desc": "audio callback context: restricted API view"}
+  ]
+ },
+
+ "game_ram": {
+  "note": "Bounded little-endian accessors over game_ram (the contiguous engine global-state image at the 1996 layout; design 10.6). OFFSETS are canonical VAs = the frozen 1996 addresses (a permanent ABI). All reads/writes are bounds-checked against the game_ram size; out-of-range reads return 0, out-of-range writes are dropped, block ops return -1. Pointer-taxonomy + pool-lifetime rules (never cache a pool-derived pointer across an engine call/tick) live in sdk/README.md.",
+  "struct_name": "roth_game_ram_api_v1",
+  "accessors": [
+   {"name": "u8",          "ret": "uint8_t",  "params": [{"type": "uint32_t", "name": "off"}], "desc": "read little-endian u8 at game_ram+off"},
+   {"name": "u16",         "ret": "uint16_t", "params": [{"type": "uint32_t", "name": "off"}], "desc": "read little-endian u16"},
+   {"name": "u32",         "ret": "uint32_t", "params": [{"type": "uint32_t", "name": "off"}], "desc": "read little-endian u32"},
+   {"name": "set_u8",      "ret": "void",     "params": [{"type": "uint32_t", "name": "off"}, {"type": "uint8_t",  "name": "v"}], "desc": "write little-endian u8"},
+   {"name": "set_u16",     "ret": "void",     "params": [{"type": "uint32_t", "name": "off"}, {"type": "uint16_t", "name": "v"}], "desc": "write little-endian u16"},
+   {"name": "set_u32",     "ret": "void",     "params": [{"type": "uint32_t", "name": "off"}, {"type": "uint32_t", "name": "v"}], "desc": "write little-endian u32"},
+   {"name": "read_block",  "ret": "int",      "params": [{"type": "uint32_t", "name": "off"}, {"type": "void *", "name": "dst"}, {"type": "uint32_t", "name": "n"}], "desc": "copy n bytes from game_ram+off into dst; returns 0 on success, -1 if out of range"},
+   {"name": "write_block", "ret": "int",      "params": [{"type": "uint32_t", "name": "off"}, {"type": "const void *", "name": "src"}, {"type": "uint32_t", "name": "n"}], "desc": "copy n bytes from src into game_ram+off; returns 0 on success, -1 if out of range"},
+   {"name": "size",        "ret": "uint32_t", "params": [], "desc": "game_ram size in bytes (the bound for every accessor)"},
+   {"name": "to_ptr",      "ret": "void *",   "params": [{"type": "uint32_t", "name": "off"}], "desc": "resolve a canonical VA (game_ram offset) to its host pointer (base+off); NULL if out of range. The VA->host-pointer op: use it to form a game_ram pointer to pass to an exposed engine fn, or to match a stored runtime code/data pointer (which the engine writes as VA+base). Do NOT deref beyond the named global's extent; never cache across an engine call/tick."}
+  ]
+ },
+
+ "mouse_poll": {
+  "note": "The SDK-neutral view of an int33 mouse-poll result, handed to on_mouse_poll (roth_on_mouse_poll_game_fn). Mirrors the host g_mods_int33_filter seam's (ax, regs) contract for the poll subfunctions: ax is the subfunction (read-only); ebx/ecx/edx are the result registers (in/out — a plugin may clear the low 16 bits to hide the mouse from the game, exactly as an overlay does while it captures input). GAME context, so engine calls are legal from the callback.",
+  "struct_name": "roth_mouse_poll_v1",
+  "fields": [
+   {"name": "ax",  "type": "uint16_t", "desc": "int33 subfunction (read-only): 3 = button+position status, 0xb = motion counters"},
+   {"name": "ebx", "type": "uint32_t", "desc": "in/out: subfn 3 button state in the low bits (bit0=L, bit1=R); clear low16 to hide buttons from the game"},
+   {"name": "ecx", "type": "uint32_t", "desc": "in/out: subfn 3 X position / subfn 0xb X motion counter (signed int16 in the low word)"},
+   {"name": "edx", "type": "uint32_t", "desc": "in/out: subfn 3 Y position / subfn 0xb Y motion counter (signed int16 in the low word)"}
+  ]
+ },
+
+ "host_api": {
+  "note": "Host services on the top-level roth_api_v1 table beyond the engine/game_ram sub-tables (appended after game_ram; design 10). plugin_dir is loader-provided plugin identity: the directory of the plugin whose MAIN lifecycle callback (on_load / on_game_ram_ready / on_register_overrides / on_unload) is currently executing — i.e. mods/<name>/, the folder beside its plugin.so — so a plugin can locate its cfg/assets without knowing the game dir or its own name. Returns \"\" outside a MAIN dispatch (its value is only meaningful while a MAIN callback runs single-threaded at boot).",
+  "fields": [
+   {"name": "plugin_dir", "ret": "const char *", "params": [], "host_symbol": "roth_sdk_current_plugin_dir", "desc": "directory of the currently-dispatching plugin (valid during MAIN lifecycle callbacks; \"\" otherwise)"}
+  ]
+ },
+
+ "callbacks": {
+  "note": "Context-tagged lifecycle callback typedefs (design 10.4). v0.1 seed only — the loader milestone finalizes the plugin-query export, override callback typedefs (roth_next_<fn>), and the resolved-chain contract. Each takes the immutable host API table.",
+  "typedefs": [
+   {"name": "roth_on_load_main_fn",            "context": "ROTH_CTX_MAIN",     "desc": "plugin init, after validation, before any engine thread starts"},
+   {"name": "roth_on_game_ram_ready_main_fn",  "context": "ROTH_CTX_MAIN",     "desc": "game_ram staged pristine and ready to patch, still pre-threads"},
+   {"name": "roth_on_frame_game_fn",           "context": "ROTH_CTX_GAME",     "desc": "per-frame hook on the game thread"},
+   {"name": "roth_on_compose_tick_isr_fn",     "context": "ROTH_CTX_TICK_ISR", "params": [{"type": "uint8_t *", "name": "pixels"}, {"type": "uint32_t", "name": "width"}, {"type": "uint32_t", "name": "height"}], "desc": "compositor tick: draw onto the published 8-bit indexed frame (pixels[width*height]) — restricted API view, NO engine calls"},
+   {"name": "roth_on_audio_fn",                "context": "ROTH_CTX_AUDIO",     "desc": "audio callback (restricted API view)"},
+   {"name": "roth_on_unload_main_fn",          "context": "ROTH_CTX_MAIN",     "desc": "teardown, only after game stop"},
+   {"name": "roth_on_register_overrides_main_fn", "context": "ROTH_CTX_MAIN", "params": [{"type": "struct roth_registrar_v1 *", "name": "reg"}], "desc": "register function overrides: call roth_override(reg, ROTH_FN_<fn>, my_cb, priority) for each. Runs on MAIN after on_load, before any engine/timer/audio thread — the host builds the immutable priority chains and patches entries from these registrations"},
+   {"name": "roth_on_scancode_tick_isr_fn",    "context": "ROTH_CTX_TICK_ISR", "ret": "uint8_t", "params": [{"type": "uint8_t", "name": "sc"}], "desc": "input seam: every keystroke before the engine sees it, in TICK_ISR context (keyboard-ISR surrogate: NO engine calls). Return the (possibly rewritten) set-1 scancode, or 0 to SWALLOW the key (no state change, like a dropped prefix). Chained across plugins in load order; a 0 return stops the chain."},
+   {"name": "roth_on_mouse_poll_game_fn",      "context": "ROTH_CTX_GAME",     "params": [{"type": "struct roth_mouse_poll_v1 *", "name": "mp"}], "desc": "int33 mouse seam: fires on the GAME thread after each mouse poll (engine calls legal), with the SDK-neutral roth_mouse_poll_v1 result. Read mp->ax + the poll registers; modify ebx/ecx/edx to filter what the game sees (overlay input capture). Chained across plugins in load order."}
+  ]
+ },
+
+ "overrides": {
+  "note": "The runtime function-override registration surface (task #103, MODS_PLATFORM.md §11.4). A plugin implements on_register_overrides(MAIN) and, inside it, calls roth_override(reg, ROTH_FN_<fn>, callback, priority) for each function it wants to wrap. `callback` has the GENERATED typed signature roth_override_<fn>_fn (in roth_sdk_overrides.h): (struct roth_chain *chain, const struct roth_api_v1 *api, <original args...>) -> <original ret>; it forwards to the next link (or the recorded original body) via roth_next_<fn>(chain, args...). The host builds one immutable, priority-sorted chain per function id (stable plugin-id tiebreak; duplicate priorities rejected in strict mode) and patches only functions with a non-empty chain, at boot, before any thread starts. Chain context is an invocation-local stack object (no TLS). Higher priority = OUTER (runs first). Registrar/chain structs are hand-curated here; the per-function typedefs + roth_next_<fn> thunks are generated from override_targets.json (eligible set) into roth_sdk_overrides.h.",
+  "registrar_struct": "roth_registrar_v1",
+  "register_typedef": "roth_register_override_fn",
+  "chain_struct": "roth_chain",
+  "registrar_fields": [
+   {"name": "struct_size", "type": "uint32_t", "desc": "sizeof(struct roth_registrar_v1) as the host built it (forward-compat sizing)"},
+   {"name": "override", "typedef": "roth_register_override_fn", "desc": "record one override into fn_id's chain; returns 0 on success, non-0 if fn_id is not an eligible/present override target (the loader logs the reason). Prefer the roth_override() convenience wrapper."}
+  ],
+  "register_signature": {"ret": "int", "params": [{"type": "struct roth_registrar_v1 *", "name": "reg"}, {"type": "uint32_t", "name": "fn_id"}, {"type": "void *", "name": "callback"}, {"type": "int", "name": "priority"}]}
+ },
+
+ "plugin": {
+  "note": "The plugin-side contract (loader milestone, design 10.4 + review finding 16). A plugin is a shared object (mods/<name>/plugin.so) exporting exactly ONE versioned function, roth_plugin_query_v1(), returning a pointer to a static roth_plugin_info_v1. abi_major/abi_minor/struct_size lead the struct (design 10.5). The reverse-DNS id is the binary-authoritative plugin identity; a mod.toml beside the .so is packaging metadata ONLY (v1 ignores it). Load rule: the loader accepts the plugin iff abi_major == host.abi_major AND abi_minor <= host.abi_minor. api_use is a DECLARED-API-USE bitmask — diagnostics/compatibility only, NEVER a sandbox (a native plugin is arbitrary in-process code and the docs say so). A NULL lifecycle callback pointer = 'not interested'.",
+  "export_macro": "ROTH_PLUGIN_EXPORT",
+  "query_export": "roth_plugin_query_v1",
+  "info_struct": "roth_plugin_info_v1",
+  "api_use": {
+   "enum_name": "roth_api_use",
+   "note": "Declared API use (design 6 / review finding 14): a self-declared compatibility hint set, validated only as a subset sanity check, NEVER enforced as a sandbox.",
+   "values": [
+    {"name": "ROTH_API_USE_GAME_RAM", "value": 1, "desc": "reads/writes game_ram through the bounded accessors"},
+    {"name": "ROTH_API_USE_ENGINE",   "value": 2, "desc": "calls exposed engine functions through the api table"},
+    {"name": "ROTH_API_USE_COMPOSE",  "value": 4, "desc": "draws into the compose-tick pixel buffer"},
+    {"name": "ROTH_API_USE_INPUT",    "value": 8, "desc": "(reserved) consumes input events"}
+   ]
+  },
+  "info_fields": [
+   {"name": "abi_major",     "type": "uint16_t",     "desc": "SDK ABI major the plugin was built against (== ROTH_ABI_MAJOR at build)"},
+   {"name": "abi_minor",     "type": "uint16_t",     "desc": "SDK ABI minor the plugin was built against (== ROTH_ABI_MINOR at build)"},
+   {"name": "struct_size",   "type": "uint32_t",     "desc": "sizeof(struct roth_plugin_info_v1) as the plugin sees it (forward-compat sizing)"},
+   {"name": "id",            "type": "const char *", "desc": "binary-authoritative reverse-DNS plugin id, e.g. \"ire.roth.examples.hello\" (non-empty, must contain a '.')"},
+   {"name": "name",          "type": "const char *", "desc": "human-readable plugin name"},
+   {"name": "version",       "type": "const char *", "desc": "plugin version string (free-form, e.g. \"1.0.0\")"},
+   {"name": "sdk_req_major", "type": "uint16_t",     "desc": "minimum required SDK major (diagnostics)"},
+   {"name": "sdk_req_minor", "type": "uint16_t",     "desc": "minimum required SDK minor (diagnostics)"},
+   {"name": "api_use",       "type": "uint32_t",     "desc": "declared-API-use bitmask (roth_api_use) — diagnostics only"},
+   {"name": "on_load",           "typedef": "roth_on_load_main_fn"},
+   {"name": "on_game_ram_ready", "typedef": "roth_on_game_ram_ready_main_fn"},
+   {"name": "on_frame_game",     "typedef": "roth_on_frame_game_fn"},
+   {"name": "on_compose_tick",   "typedef": "roth_on_compose_tick_isr_fn"},
+   {"name": "on_audio",          "typedef": "roth_on_audio_fn"},
+   {"name": "on_unload",         "typedef": "roth_on_unload_main_fn"},
+   {"name": "on_register_overrides", "typedef": "roth_on_register_overrides_main_fn"},
+   {"name": "on_scancode",       "typedef": "roth_on_scancode_tick_isr_fn"},
+   {"name": "on_mouse_poll",     "typedef": "roth_on_mouse_poll_game_fn"}
+  ]
+ }
+}
