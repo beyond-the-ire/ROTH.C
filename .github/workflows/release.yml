@@ -27,17 +27,20 @@ jobs:
         run: |
           sudo apt-get install -y gcc-multilib python3 cmake git pkg-config \
             libx11-dev:i386 libxext-dev:i386 libxrandr-dev:i386 libxi-dev:i386 \
-            libasound2-dev:i386 libpulse-dev:i386
+            libasound2-dev:i386 libpulse-dev:i386 \
+            libxcursor-dev:i386 libxss-dev:i386
 
       - name: Cache the 32-bit SDL3 build
         id: sdl-cache
         uses: actions/cache@v4
         with:
           path: roth_c/third_party
-          key: sdl3-i386-${{ runner.os }}-${{ hashFiles('tools/build_sdl3_i386.sh') }}
+          key: sdl3-i386-v2-${{ runner.os }}-${{ hashFiles('tools/build_sdl3_i386.sh') }}
 
       - name: Build 32-bit SDL3 (cache miss only)
         if: steps.sdl-cache.outputs.cache-hit != 'true'
+        env:
+          PKG_CONFIG_PATH: /usr/lib/i386-linux-gnu/pkgconfig
         run: tools/build_sdl3_i386.sh
 
       - name: Verify the SDK gates before releasing
