@@ -116,6 +116,18 @@ jobs:
       - name: Build the vanilla Windows binary (CROSS=mingw)
         run: make -C roth_c CROSS=mingw FLAVOR=vanilla
 
+      - name: Wine boot smoke (the binary runs and reaches the game-files guidance)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wine32:i386 >/dev/null
+          mkdir -p /tmp/winesmoke
+          cp roth_c/rothc.exe roth_c/third_party/sdl3-win32/bin/SDL3.dll /tmp/winesmoke/
+          cd /tmp/winesmoke
+          timeout 120 wine rothc.exe --list-mods > smoke.log 2>&1 || true
+          # The exe must start, resolve its own directory, and print the game-files guidance.
+          grep -a "cannot find CONFIG.INI" smoke.log
+
       - name: Upload rothc.exe artifacts (whatever built)
         if: always()
         uses: actions/upload-artifact@v4
