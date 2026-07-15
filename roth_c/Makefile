@@ -39,7 +39,15 @@ ifeq ($(CROSS),mingw)
   # MinGW CRT's deprecated stricmp oldname (int(const char*,const char*)); glibc has no such alias,
   # so the native build never needs it. See that header for the include-ordering rationale.
   CFLAGS   := -O1 -g -Wall -Wextra -D_GNU_SOURCE -fno-stack-protector -include src/platform/mingw_compat.h
-  LDFLAGS  := -Wl,--image-base,0x10000000 -Wl,--disable-dynamicbase -m$(WIN_SUBSYSTEM)
+  # The engine needs committed memory at fixed low addresses (a 1996 layout it stores absolute
+  # pointers into). Windows colonizes the low address space (heap, stacks, locale mappings) during
+  # startup before any app code runs, so those addresses can't be reserved after the fact. Instead
+  # the image itself pre-claims them: base it low (0x10000) with a generated linker script that
+  # carries a zero-fill .arena section over the fixed window, so the loader's own image reservation
+  # owns those addresses before the CRT can. --disable-dynamicbase keeps the preferred base; a
+  # runtime check (sys_win32.c) fails loud if the image relocates anyway. The -T linker script is
+  # appended after the flavor block below, where the per-flavor build dir (BUILD) is known.
+  LDFLAGS  := -Wl,--image-base,0x10000 -Wl,--disable-dynamicbase -m$(WIN_SUBSYSTEM)
   SDL3_DIR := third_party/sdl3-win32
   NM       := $(XPFX)nm
   OBJDUMP  := $(XPFX)objdump
@@ -94,6 +102,13 @@ else ifeq ($(FLAVOR),moddable)
   endif
 else
   $(error FLAVOR must be 'moddable' or 'vanilla' (got '$(FLAVOR)'))
+endif
+
+# The low-image arena linker script (Windows only). Defined here, after BUILD is known, and
+# appended to the link so the loader pins the fixed arena (see the LDFLAGS note in the CROSS block).
+ifeq ($(CROSS),mingw)
+  ARENA_LD := $(BUILD)/win32_arena.ld
+  LDFLAGS  += -Wl,-T,$(ARENA_LD)
 endif
 
 # --- 32-bit SDL3 for the in-process window/audio ------------------------------------------------
@@ -231,8 +246,8 @@ roth-host-vanilla: roth-vanilla         # compatibility alias -> the vanilla fla
 # instrument), but they are dead code in the standalone build — calltrace_init/capture_init are in
 # main.c's trap-only #else branch and the dispatch calls live in the gc'd int-trap servicer. They are
 # therefore NOT linked here. (Proven: nm on the result carries no calltrace_/capture_.)
-$(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS) $(WIN_RES_OBJ)
-	$(CC) $(LDFLAGS) -Wl,--gc-sections -o $@ $^ $(SDL_LDLIBS)
+$(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS) $(WIN_RES_OBJ) $(ARENA_LD)
+	$(CC) $(LDFLAGS) -Wl,--gc-sections -o $@ $(filter-out $(ARENA_LD),$^) $(SDL_LDLIBS)
 ifeq ($(CROSS),mingw)
 	@echo "== nm-clean assertion (PE, underscore-aware): no original-bytes bridge (call_orig / lift_install / trampoline / int3 resume) =="
 	@# i686-PE prefixes C symbols with a leading underscore, so the native gate's raw grep would
@@ -444,6 +459,10 @@ $(BUILD)/sys_posix.o: $(PLATFORM)/sys/sys_posix.c $(PLATFORM)/sys/sys.h $(PLATFO
 # periodic tick is a marked not-yet stub). Compiled plain; joins the link on the CROSS=mingw axis.
 $(BUILD)/sys_win32.o: $(PLATFORM)/sys/sys_win32.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h $(PLATFORM)/win32_compat.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+# the low-image arena linker script (see tools/gen_win32_arena_ld.sh + the LDFLAGS note above),
+# derived from the installed linker's own default PE script so it tracks the toolchain.
+$(ARENA_LD): $(TOOLS)/gen_win32_arena_ld.sh | $(BUILD)
+	$(TOOLS)/gen_win32_arena_ld.sh $(XPFX)ld $@
 # the Windows application icon/version resource -> COFF object. Compiled ONLY on CROSS=mingw and ONLY
 # when res/rothc.ico exists (WIN_RES_OBJ is empty otherwise, so this rule never fires and the link
 # carries no resource). Drop a Windows .ico at res/rothc.ico to brand the executable.

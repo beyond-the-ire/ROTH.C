@@ -28,7 +28,19 @@ static int fb_trace_on(void)
 
 static uint32_t g_pm_vec[256];     /* CX:EDX pairs, CX implicit game CS */
 static uint32_t g_exc_handler[32];
-static uint32_t g_dosmem_brk = DOSMEM_LIN;
+
+/* The base of the usable DOS low-memory scratch pool. On Windows the first page of the DOSMEM
+ * window (DOSMEM_LIN .. DOSMEM_LIN+0x1000) is the executable's own read-only PE header — the image
+ * is based there so the loader pins the fixed arena, and writing that page corrupts the header the
+ * OS re-reads during thread creation. So the pool starts one page in; the lost page is DOS scratch
+ * the game never depends on. Everywhere else the whole window is ordinary writable memory. */
+#ifdef _WIN32
+#define DOSMEM_POOL_LIN (DOSMEM_LIN + 0x1000u)
+#else
+#define DOSMEM_POOL_LIN (DOSMEM_LIN)
+#endif
+
+static uint32_t g_dosmem_brk = DOSMEM_POOL_LIN;
 
 /* ---- VESA / VBE modes ---------------------------------------------------
  * Modes we advertise to the game's mode enumerator (match_vesa_video_modes
@@ -327,10 +339,11 @@ void dpmi_int31(cpu_t *c)
             }
             LOGT("dpmi 0300: VBE 4F01 mode 0x%x -> %s\n", mode, m ? "ok" : "unsupported");
         } else if (vec == 0x21 && AH_OF(rm_eax) == 0x63) {
-            /* get DBCS lead-byte table -> DS:SI; empty table = US DOS */
-            memset((void *)DOSMEM_LIN, 0, 4);
-            *(uint16_t *)(rm + 0x24) = DOSMEM_LIN >> 4; /* RM DS */
-            *(uint32_t *)(rm + 0x04) = DOSMEM_LIN & 0xf; /* RM ESI */
+            /* get DBCS lead-byte table -> DS:SI; empty table = US DOS. Use the pool base, not
+             * DOSMEM_LIN: on Windows the latter is the read-only PE-header page (see above). */
+            memset((void *)DOSMEM_POOL_LIN, 0, 4);
+            *(uint16_t *)(rm + 0x24) = DOSMEM_POOL_LIN >> 4; /* RM DS */
+            *(uint32_t *)(rm + 0x04) = DOSMEM_POOL_LIN & 0xf; /* RM ESI */
             *(uint32_t *)(rm + 0x1c) = rm_eax & ~0xffu;  /* AL=0 ok */
             *rm_flags &= ~1u; /* CF clear */
             LOGT("dpmi 0300: rm int21 AH=63 (DBCS table) -> empty\n");

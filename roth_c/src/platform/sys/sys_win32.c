@@ -445,17 +445,45 @@ static void dump_low_regions(void)
     }
 }
 
+/* The pinned arena lives inside the image itself: the executable is based at 0x10000 with a
+ * zero-fill .arena section covering the fixed window (see the build's linker script), so the
+ * loader reserves and commits those fixed addresses at image-map time — before the process heap,
+ * thread stacks, or locale mappings can occupy them. map_fixed therefore only VALIDATES that the
+ * requested window is committed image memory; it never allocates (the region is a mapped image,
+ * not private memory) and never writes the first page (that page carries the read-only PE header;
+ * the DOS pool skips it — see dpmi.c). */
+#define ARENA_IMAGE_BASE 0x10000u
+
 void map_fixed(uint32_t base, uint32_t size, int prot)
 {
+    (void)prot;   /* the .arena section is already read-write; no protection change is needed */
+
+    /* The image must have loaded at its preferred base or the fixed addresses are meaningless.
+     * --disable-dynamicbase asks for this but does not guarantee it (a relocatable image can still
+     * be moved), so verify once and fail loud. */
+    static int base_checked;
+    if (!base_checked) {
+        base_checked = 1;
+        uintptr_t got = (uintptr_t)GetModuleHandleA(NULL);
+        if (got != ARENA_IMAGE_BASE) {
+            LOGE("image loaded at 0x%zx, not its preferred base 0x%x — the fixed arena cannot be "
+                 "honored; refusing to run\n", got, (unsigned)ARENA_IMAGE_BASE);
+            exit(1);
+        }
+    }
+
     uint32_t lo = base & ~0xfffu;
     uint32_t hi = (base + size + 0xfffu) & ~0xfffu;
-    DWORD flags = (prot & PROT_EXEC) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
-    void *p = VirtualAlloc((void *)(uintptr_t)lo, hi - lo, MEM_RESERVE | MEM_COMMIT, flags);
-    if (p != (void *)(uintptr_t)lo) {
-        LOGE("VirtualAlloc 0x%x..0x%x failed (got %p): %lu\n",
-             lo, hi, p, (unsigned long)GetLastError());
-        dump_low_regions();
-        exit(1);
+    for (uint32_t a = lo; a < hi; ) {
+        MEMORY_BASIC_INFORMATION mi;
+        if (!VirtualQuery((void *)(uintptr_t)a, &mi, sizeof mi) ||
+            mi.State != MEM_COMMIT ||
+            (uintptr_t)mi.AllocationBase != ARENA_IMAGE_BASE) {
+            LOGE("fixed window 0x%x..0x%x is not committed image memory at 0x%x\n", lo, hi, a);
+            dump_low_regions();
+            exit(1);
+        }
+        a = (uint32_t)((uintptr_t)mi.BaseAddress + mi.RegionSize);
     }
 }
 
