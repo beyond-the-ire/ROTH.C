@@ -156,10 +156,18 @@ PLATFORM_OBJS := $(BUILD)/dos.o $(BUILD)/dpmi.o $(BUILD)/audio.o $(BUILD)/audio_
                  $(BUILD)/os_audio_standalone.o
 # image-free-only host TUs
 STANDALONE_ONLY_OBJS := $(BUILD)/traps_if.o $(BUILD)/main_if.o $(BUILD)/boot.o
+# the per-OS system seam (the tick/timer today; more OS primitives later). The POSIX bodies live in
+# sys/sys_posix.c; the Windows bodies (sys/sys_win32.c) join on the CROSS=mingw axis in a later step.
+# Only the native build links a seam object now.
+ifeq ($(CROSS),mingw)
+  PLATFORM_OS_OBJS :=
+else
+  PLATFORM_OS_OBJS := $(BUILD)/sys_posix.o
+endif
 # datac data-as-C the image-free link consumes (obj3_build overlays obj3_owned + reloc pass; obj1 arena)
 DATAC_OBJS := $(BUILD)/obj3_build_if.o $(BUILD)/obj3_data_if.o $(BUILD)/obj3_owned_if.o \
               $(BUILD)/obj1data_if.o $(BUILD)/obj1_owned_if.o
-STANDALONE_HOST_OBJS := $(PLATFORM_OBJS) $(STANDALONE_ONLY_OBJS) $(DATAC_OBJS)
+STANDALONE_HOST_OBJS := $(PLATFORM_OBJS) $(PLATFORM_OS_OBJS) $(STANDALONE_ONLY_OBJS) $(DATAC_OBJS)
 # There is no compile-time mod mechanism: mods are never selected or built at compile time. ALL mods
 # are runtime plugins (sdk/examples/), loaded by the platform below in the moddable flavor.
 
@@ -321,6 +329,10 @@ $(BUILD)/sdl_tsf.o: $(PLATFORM)/sdl/sdl_tsf.c $(PLATFORM)/viewer/tsf.h | $(BUILD
 	$(CC) $(CFLAGS) -w -c -o $@ $<
 # the image-free boot: maps the arena + host video/DOS, obj3_build's the data, binds OS-API/host hooks
 $(BUILD)/boot.o: $(PLATFORM)/boot.c | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+# the per-OS system seam, POSIX bodies (installs the SIGALRM tick handler; arms/retunes/stops the
+# interval timer). Lives under platform/sys/, compiled plain like the other native host services.
+$(BUILD)/sys_posix.o: $(PLATFORM)/sys/sys_posix.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # --- the always-native host services (plain CFLAGS) ---

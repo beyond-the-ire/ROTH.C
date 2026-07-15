@@ -9,6 +9,7 @@
 #include "calltrace.h"
 #include "capture.h"
 #include "g_names.h"   /* VA_<global> canon-VA constants for the GV8/GV16/GV32 sites (generated) */
+#include "sys/sys.h"   /* per-OS tick seam: sys_tick_start/_set_period/_stop + roth_tick_isr */
 /* Plugin seam prototypes (task #103 two-flavor ruling): MODDABLE imgfree only — the vanilla flavor
  * (-DROTH_VANILLA) links no plugin loader, so these dispatch calls are compiled out entirely. The
  * plugin loader is the ONLY seam consumer now (the legacy mods layer is retired; docs/MODS_PLATFORM.md
@@ -347,8 +348,7 @@ static void pit_set_rate(uint16_t div)
     long us = (long)((double)div * 1000000.0 / 1193182.0);
     if (us < 1000)   us = 1000;     /* cap ~1000 Hz */
     if (us > 200000) us = 200000;   /* floor ~5 Hz */
-    struct itimerval it = {{0, us}, {0, us}};
-    setitimer(ITIMER_REAL, &it, NULL);
+    sys_tick_set_period((unsigned)us);
 }
 
 /* Program the host IRQ0/int-8 timer to a PIT ch0 divisor from an image-free host-C audio-timer native
@@ -2052,7 +2052,22 @@ static void shm_tick(void)
     }
 }
 
-static void alarm_handler(int sig, siginfo_t *si, void *ucv)
+/* The portable per-tick body, split out so both the POSIX SIGALRM handler and other OS timer
+ * back-ends can run it. It does NO CPU segment-register work: on i386 signal delivery drops the host
+ * TLS selectors, so alarm_handler restores fs/gs around this call, but the body itself must stay
+ * segment-agnostic for back-ends whose thread selectors are already correct. */
+void roth_tick_isr(void)
+{
+    /* imgfree-boot: force the always-interactive surrogate on so the shm_tick below drives the
+     * lifted C ISR bodies directly this tick. Dead until roth_boot sets g_standalone_boot (nothing does
+     * yet); idempotent belt-and-suspenders with roth_boot()'s own boot-time set. */
+    if (g_standalone_boot)
+        g_os_interactive = 1;
+
+    shm_tick();   /* honors g_shm->quit -> _exit(0) internally */
+}
+
+void alarm_handler(int sig, siginfo_t *si, void *ucv)
 {
     (void)sig; (void)si;
     uint16_t game_fs, game_gs;
@@ -2061,13 +2076,9 @@ static void alarm_handler(int sig, siginfo_t *si, void *ucv)
     __asm__ volatile("mov %0, %%fs" :: "r"((uint32_t)g_host_fs));
     __asm__ volatile("mov %0, %%gs" :: "r"((uint32_t)g_host_gs));
 
-    /* imgfree-boot: force the always-interactive surrogate on so the shm_tick below drives the
-     * lifted C ISR bodies directly this tick. Dead until roth_boot sets g_standalone_boot (nothing does
-     * yet); idempotent belt-and-suspenders with roth_boot()'s own boot-time set. */
-    if (g_standalone_boot)
-        g_os_interactive = 1;
-
-    shm_tick();
+    /* Run the portable per-tick body (frame clock, audio poll, cursor, GDV pump, keyboard drain via
+     * the shm_tick surrogate) with the host TLS selectors loaded above. */
+    roth_tick_isr();
 
     /* imgfree-boot: bypass inject_irq ENTIRELY. The frame clock, GDV accumulator pump, cursor, audio
      * poll and keyboard (iso_apply_scancode) were all produced by the shm_tick surrogate above; with obj1
@@ -2103,13 +2114,10 @@ static void alarm_handler(int sig, siginfo_t *si, void *ucv)
 
 void irq_timer_start(void)
 {
-    struct sigaction sa = {0};
-    sa.sa_sigaction = alarm_handler;
-    sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESTART;
-    sigaction(SIGALRM, &sa, NULL);
-    /* PIT divisor 0x4242 -> 1193182/16962 = 70.3 Hz, as the game programs */
-    struct itimerval it = {{0, 14222}, {0, 14222}};
-    setitimer(ITIMER_REAL, &it, NULL);
+    /* PIT divisor 0x4242 -> 1193182/16962 = 70.3 Hz, as the game programs. The OS-specific timer
+     * mechanism (installing alarm_handler on SIGALRM + arming the interval timer here) lives behind
+     * the tick seam. */
+    sys_tick_start(14222);
 }
 
 void traps_install(void)
