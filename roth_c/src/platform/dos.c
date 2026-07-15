@@ -5,7 +5,9 @@
 
 #include <ctype.h>
 #include <fcntl.h>
-#include <fnmatch.h>
+#ifndef _WIN32
+#include <fnmatch.h>   /* the Windows build gets a compact fnmatch via roth_host.h */
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>

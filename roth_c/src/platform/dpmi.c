@@ -11,7 +11,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <execinfo.h>   /* ROTH_FB_TRACE: backtrace the render-target base-set (mirror-buffer bug) */
+#endif
 
 /* ROTH_FB_TRACE diagnostic (2026-07-09): the secondary/mirror render-target selector was seen
  * resolving to unmapped memory (segfaults in render_secondary_surface_list). This gate logs every
@@ -205,9 +207,11 @@ void dpmi_int31(cpu_t *c)
                 LOGE("[fbtrace] set-base RENDER-TARGET %s sel 0x%x -> base 0x%x  "
                      "[now: primary sel 0x%x base 0x%x | secondary sel 0x%x base 0x%x]\n",
                      which, sel, base, rp, g_known_base[rp >> 3], rs, g_known_base[rs >> 3]);
+#ifndef _WIN32
                 void *bt[32];
                 int n = backtrace(bt, 32);
                 backtrace_symbols_fd(bt, n, 2);
+#endif
             }
         }
         break;

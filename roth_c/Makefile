@@ -160,11 +160,11 @@ PLATFORM_OBJS := $(BUILD)/dos.o $(BUILD)/dpmi.o $(BUILD)/audio.o $(BUILD)/audio_
                  $(BUILD)/os_audio_standalone.o
 # image-free-only host TUs
 STANDALONE_ONLY_OBJS := $(BUILD)/traps_if.o $(BUILD)/main_if.o $(BUILD)/boot.o
-# the per-OS system seam (the tick/timer today; more OS primitives later). The POSIX bodies live in
-# sys/sys_posix.c; the Windows bodies (sys/sys_win32.c) join on the CROSS=mingw axis in a later step.
-# Only the native build links a seam object now.
+# the per-OS system seam (the tick/timer + dl-compat + protect-exec + low-alloc + exe-dir + dir-enum,
+# plus the fixed-mapping arena and the software selector ledger). The POSIX bodies live in
+# sys/sys_posix.c; the Windows bodies in sys/sys_win32.c. Each axis links exactly one seam object.
 ifeq ($(CROSS),mingw)
-  PLATFORM_OS_OBJS :=
+  PLATFORM_OS_OBJS := $(BUILD)/sys_win32.o
 else
   PLATFORM_OS_OBJS := $(BUILD)/sys_posix.o
 endif
@@ -337,6 +337,10 @@ $(BUILD)/boot.o: $(PLATFORM)/boot.c | $(BUILD)
 # the per-OS system seam, POSIX bodies (installs the SIGALRM tick handler; arms/retunes/stops the
 # interval timer). Lives under platform/sys/, compiled plain like the other native host services.
 $(BUILD)/sys_posix.o: $(PLATFORM)/sys/sys_posix.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+# the per-OS system seam, Windows bodies (loader/alloc/protect/dir/arena/selector primitives; the
+# periodic tick is a marked not-yet stub). Compiled plain; joins the link on the CROSS=mingw axis.
+$(BUILD)/sys_win32.o: $(PLATFORM)/sys/sys_win32.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h $(PLATFORM)/win32_compat.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # --- the always-native host services (plain CFLAGS) ---

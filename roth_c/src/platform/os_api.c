@@ -12,7 +12,9 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include <ucontext.h>
+#ifndef _WIN32
+#include <ucontext.h>   /* the register-frame type; the Windows build gets it via roth_host.h */
+#endif
 #include "os_api.h"
 #include "roth_host.h"
 

@@ -620,7 +620,9 @@ const int g_blend_writer_n = (int)(sizeof g_blend_writer_sites / sizeof g_blend_
 static volatile int g_cur_transp;   /* current span draws a transparency texture */
 static volatile int g_cur_blended;  /* current span reached a blend writer */
 static volatile uint32_t g_cur_qa;  /* current span's texture Q+0xa */
+#ifndef _WIN32
 static void handler_body(cpu_t *c, siginfo_t *si);
+#endif
 static int irq_return(cpu_t *c);
 static void gdv_publish_frame(void); /* publish the complete decoded cutscene frame */
 extern volatile int g_gdv_emit_lifted; /* lift_registry.c: gdv_emit_decoded_frame is live-swapped */
@@ -647,6 +649,10 @@ void host_run_isr_heartbeat(void);
  * (sos_sequence_timer_tick 0x51ad5) per active track. Default off. (SFX-under-swap deferred.) renderer.c. */
 void host_step_midi_tracks(void);
 
+/* The fault-based trap servicer (handler/handler_body) is delivered by POSIX signals and reflects the
+ * original image's interrupts; the image-free product never installs it and it garbage-collects away.
+ * It is compiled only on platforms that provide the signal/context machinery it is written against. */
+#ifndef _WIN32
 static void handler(int sig, siginfo_t *si, void *ucv)
 {
     (void)sig;
@@ -1006,6 +1012,7 @@ static void handler_body(cpu_t *c, siginfo_t *si)
     }
     }
 }
+#endif /* !_WIN32 — the signal-delivered trap servicer */
 
 /* ------------------------------------------------------ IRQ injection -- */
 
@@ -2067,6 +2074,9 @@ void roth_tick_isr(void)
     shm_tick();   /* honors g_shm->quit -> _exit(0) internally */
 }
 
+/* The POSIX interval-timer tick handler: restores the host TLS selectors, runs the portable tick body,
+ * then (image mapped) services the injected IRQ. Signal-delivered; compiled on POSIX platforms only. */
+#ifndef _WIN32
 void alarm_handler(int sig, siginfo_t *si, void *ucv)
 {
     (void)sig; (void)si;
@@ -2111,6 +2121,7 @@ void alarm_handler(int sig, siginfo_t *si, void *ucv)
     (void)game_fs;
     (void)game_gs;
 }
+#endif /* !_WIN32 — the signal-delivered interval-timer handler */
 
 void irq_timer_start(void)
 {
@@ -2120,6 +2131,9 @@ void irq_timer_start(void)
     sys_tick_start(14222);
 }
 
+/* Installs the fault-based trap servicer on the signal set the original image needs. Trap-host only;
+ * the image-free product never calls it, and it is compiled on POSIX platforms only. */
+#ifndef _WIN32
 void traps_install(void)
 {
     static char altstack[256 * 1024];
@@ -2140,3 +2154,4 @@ void traps_install(void)
     sigaction(SIGILL, &sa, NULL); /* int into bad vector can raise SIGILL */
     sigaction(SIGTRAP, &sa, NULL);
 }
+#endif /* !_WIN32 — traps_install */

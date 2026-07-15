@@ -54,7 +54,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>   /* strcasecmp (system-soundfont extension match) */
-#include <sys/mman.h>
+#ifndef _WIN32
+#include <sys/mman.h>   /* the shared-memory backing below is a POSIX-only publish path */
+#endif
 #include <unistd.h>
 
 /* our own second views of the producer's shm mailboxes (NOT audio.c's static g_au/g_midi). The
@@ -204,6 +206,9 @@ void sdl_audio_poll_open(void)
         if (!au || au->magic != ROTH_AUDIO_MAGIC || !au->ready)
             return;             /* not set up yet -> try again next present frame */
     } else {
+#ifdef _WIN32
+        return;                     /* named shared-memory backing is a POSIX-only publish path */
+#else
         int fd = shm_open(ROTH_AUDIO_SHM_NAME, O_RDWR, 0600);
         if (fd < 0)
             return;                 /* not created yet -> try again next present frame */
@@ -215,12 +220,15 @@ void sdl_audio_poll_open(void)
             munmap(au, sizeof *au); /* created but not initialized yet -> retry next frame */
             return;
         }
+#endif
     }
 
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {   /* SDL3: bool return, true = ok */
         fprintf(stderr, "[sdl-audio] SDL_InitSubSystem(AUDIO): %s — no sound\n", SDL_GetError());
+#ifndef _WIN32
         if (!in_proc)
             munmap(au, sizeof *au); /* in-process: the ring is the producer's — never unmap it */
+#endif
         g_audio_gaveup = 1;
         return;
     }
@@ -235,6 +243,7 @@ void sdl_audio_poll_open(void)
         if (midi && (midi->magic != ROTH_MIDI_MAGIC || !midi->ready))
             midi = NULL;
     } else {
+#ifndef _WIN32
         int mfd = shm_open(ROTH_MIDI_SHM_NAME, O_RDWR, 0600);
         if (mfd >= 0) {
             midi = mmap(NULL, sizeof *midi, PROT_READ | PROT_WRITE, MAP_SHARED, mfd, 0);
@@ -242,6 +251,7 @@ void sdl_audio_poll_open(void)
             if (midi == MAP_FAILED || midi->magic != ROTH_MIDI_MAGIC || !midi->ready)
                 midi = NULL;
         }
+#endif
     }
     tsf *synth = NULL;
     if (midi) {

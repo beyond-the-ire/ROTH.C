@@ -21,7 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 #include <unistd.h>
 
 #define CANON(x) ((uint32_t)((x) + OBJ_DELTA))
@@ -417,9 +419,15 @@ static void audio_shm_setup(void)
          g_drive_div ? "fixed(ROTH_STREAM_DIV)" : "auto");
 
     if (g_au_in_process) {
-        /* Private in-process backing: a plain anonymous mapping this process owns.
-         * No named object, so nothing external can attach — the window's own
-         * consumer reads these bytes directly. Freed at process exit. */
+        /* Private in-process backing: a buffer this process owns. No named object, so nothing
+         * external can attach — the window's own consumer reads these bytes directly. Freed at exit. */
+#ifdef _WIN32
+        g_au = calloc(1, sizeof(struct roth_audio));
+        if (!g_au) {
+            ALOG("audio in-process alloc failed: no sound output\n");
+            return;
+        }
+#else
         g_au = mmap(NULL, sizeof(struct roth_audio), PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (g_au == MAP_FAILED) {
@@ -427,7 +435,12 @@ static void audio_shm_setup(void)
             ALOG("audio in-process alloc failed: no sound output\n");
             return;
         }
+#endif
     } else {
+#ifdef _WIN32
+        ALOG("named shared-memory audio backing is not available on this platform\n");
+        return;
+#else
         int fd = shm_open(ROTH_AUDIO_SHM_NAME, O_CREAT | O_RDWR, 0600);
         if (fd < 0) {
             ALOG("audio shm_open failed: no sound output\n");
@@ -444,6 +457,7 @@ static void audio_shm_setup(void)
             g_au = NULL;
             return;
         }
+#endif
     }
     memset(g_au, 0, sizeof *g_au);
     g_au->magic = ROTH_AUDIO_MAGIC;
@@ -462,6 +476,7 @@ static void audio_shm_setup(void)
  * timer IRQ uses SIGALRM, so SIGPROF/ITIMER_PROF is free. Diagnostic only. */
 static unsigned g_prof_pg[0x600];   /* 256-byte buckets (canon 0..0x60000) so the hot bucket pins the exact fn */
 static unsigned long g_prof_game, g_prof_host, g_prof_tot;
+#ifndef _WIN32
 static void prof_handler(int sig, siginfo_t *si, void *uc)
 {
     (void)sig;
@@ -482,6 +497,7 @@ static void prof_handler(int sig, siginfo_t *si, void *uc)
      * corrupting it -> crash. The dump runs from MAGIC_POLL (a non-nesting spot;
      * SIGPROF never does I/O so it can't nest on the dump). */
 }
+#endif /* !_WIN32 — signal-sampled CPU profiler handler */
 
 static unsigned long g_prof_next = 1000;
 static void audio_profile_dump(void)
@@ -521,6 +537,7 @@ static void audio_profile_dump(void)
 }
 static void audio_profile_init(void)
 {
+#ifndef _WIN32
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_sigaction = prof_handler;
@@ -530,6 +547,7 @@ static void audio_profile_init(void)
     struct itimerval it = {{0, 5000}, {0, 5000}}; /* 5 ms CPU-time ticks */
     setitimer(ITIMER_PROF, &it, NULL);
     ALOG("CPU profiler on (SIGPROF 5ms): [prof] = host vs game CPU + hot pages\n");
+#endif /* !_WIN32 — the profiler is signal/interval-timer driven */
 }
 
 static void sfx_trace_init(void);   /* §SFX-DROPOUT STANDING TRACE — defined below (near audio_mix_sfx) */
@@ -591,12 +609,16 @@ void audio_init(void)
              "to enable). Null MIDI callbacks are skipped via the eip=0 guard.\n",
              g_standalone_boot ? "NO int3, image-free" : "int3");
     } else if (g_au_in_process) {
-        /* MIDI enabled, private in-process backing (mirrors the PCM ring): a plain
-         * anonymous mapping the window's own synth consumer reads directly. */
+        /* MIDI enabled, private in-process backing (mirrors the PCM ring): a buffer the window's
+         * own synth consumer reads directly. */
+#ifdef _WIN32
+        g_midi = calloc(1, sizeof(struct roth_midi));
+#else
         g_midi = mmap(NULL, sizeof(struct roth_midi), PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (g_midi == MAP_FAILED)
             g_midi = NULL;
+#endif
         if (g_midi) {
             memset(g_midi, 0, sizeof *g_midi);
             g_midi->magic = ROTH_MIDI_MAGIC;
@@ -604,6 +626,10 @@ void audio_init(void)
             ALOG("MIDI ring ready (in-process backing) -> SoundFont synth\n");
         }
     } else {
+#ifdef _WIN32
+        ALOG("named shared-memory MIDI backing is not available on this platform\n");
+        g_midi = NULL;
+#else
         /* MIDI enabled: set up the host->viewer MIDI-event ring for the synth. */
         int mfd = shm_open(ROTH_MIDI_SHM_NAME, O_CREAT | O_RDWR, 0600);
         if (mfd >= 0 && ftruncate(mfd, sizeof(struct roth_midi)) == 0) {
@@ -621,6 +647,7 @@ void audio_init(void)
             ALOG("MIDI ring ready (%s) -> viewer SoundFont synth\n",
                  ROTH_MIDI_SHM_NAME);
         }
+#endif /* !_WIN32 — the shared-memory MIDI publish path */
     }
 }
 
@@ -1214,11 +1241,21 @@ static void sfx_ev(uint8_t type, uint8_t voice, uint16_t a, uint32_t b, uint32_t
 static void sfx_trace_dump(const char *reason)
 {
     if (!g_sfxtrace) return;
+#ifndef _WIN32
+    /* Serialize against the signal-driven pump's own dump. Where the pump is not signal-driven there
+     * is no in-handler dump to fence against, so no mask is taken. */
     sigset_t blk, old; sigemptyset(&blk); sigaddset(&blk, SIGALRM); sigaddset(&blk, SIGUSR2);
-    sigprocmask(SIG_BLOCK, &blk, &old);   /* Linux: per-thread; serialize vs the pump's self-check dump */
+    sigprocmask(SIG_BLOCK, &blk, &old);
+#endif
     const char *path = g_sfx_trace_file ? g_sfx_trace_file : "/tmp/roth_sfx_trace.txt";
     FILE *f = fopen(path, "a");
-    if (!f) { LOGE("[sfx-trace] cannot open %s\n", path); sigprocmask(SIG_SETMASK, &old, NULL); return; }
+    if (!f) {
+        LOGE("[sfx-trace] cannot open %s\n", path);
+#ifndef _WIN32
+        sigprocmask(SIG_SETMASK, &old, NULL);
+#endif
+        return;
+    }
     uint32_t ms = sfx_now_ms();
     fprintf(f, "\n===== SFX-TRACE DUMP  t=%lu  ms=%u  reason=%s =====\n", g_mtick, ms, reason);
     /* voice-start session summary (the START-FAIL signature's running arithmetic) */
@@ -1265,7 +1302,9 @@ static void sfx_trace_dump(const char *reason)
     fprintf(f, "===== end dump =====\n");
     fclose(f);
     LOGE("[sfx-trace] dumped (%s) -> %s\n", reason, path);
+#ifndef _WIN32
     sigprocmask(SIG_SETMASK, &old, NULL);
+#endif
 }
 
 /* Per-tick health snapshot (once/sec) + the dead-SFX self-check. `mixed_frames` = sfx PCM frames the
@@ -1335,8 +1374,11 @@ static void sfx_trace_tick(uint32_t mixed_frames, int movie_active)
     if (g_sfx_dump_req) { g_sfx_dump_req = 0; sfx_trace_dump("manual: SIGUSR2"); }
 }
 
-/* SIGUSR2 handler: async-signal-safe (sets a flag only; the pump polls + dumps off the signal path). */
+/* SIGUSR2 handler: async-signal-safe (sets a flag only; the pump polls + dumps off the signal path).
+ * Signal-delivered; installed only where a manual-dump signal exists. */
+#ifndef _WIN32
 static void sfx_trace_sigusr2(int sig) { (void)sig; g_sfx_dump_req = 1; }
+#endif
 
 /* Voice-START observability (v2 — the REAL dropout signature). Called from the imgfree voice-start
  * veneer (os_audio_standalone.c) with the native's return: 0xffffffff = NO FREE SLOT (the wedge), else
@@ -1407,12 +1449,14 @@ static void sfx_trace_init(void)
       if (s) { double d = atof(s); if (d >= 0.5) g_sfx_dead_secs = d; } }
     { const char *s = getenv("ROTH_SFX_STARTFAIL_N");
       if (s) { long n = strtol(s, NULL, 0); if (n >= 1) g_sfx_startfail_n = (unsigned)n; } }
+#ifndef _WIN32
     if (getenv("ROTH_TRACE") == NULL) {
         struct sigaction sa; memset(&sa, 0, sizeof sa);
         sa.sa_handler = sfx_trace_sigusr2;   /* flag-set only; SA_RESTART so no syscall is disturbed */
         sa.sa_flags = SA_RESTART;
         sigaction(SIGUSR2, &sa, NULL);
     }
+#endif
     LOGE("[sfx-trace] ROTH_SFX_TRACE=1 armed (v2): total-silence dead-hold %.1fs, START-FAIL after %u "
          "consecutive voice-start misses; dump -> %s (the file writes itself when you quit); "
          "manual dump = kill -USR2 %d%s\n",
@@ -1816,7 +1860,9 @@ static uint32_t svc_alloc_seg(uint32_t size, uint16_t *out_sel)
     uint32_t base = (uint32_t)(uintptr_t)p;
     int sel = ldt_alloc(base, size ? size - 1 : 0);
     if (sel < 0) {
-        munmap(p, (size + 0xfffu) & ~0xfffu);
+#ifndef _WIN32
+        munmap(p, (size + 0xfffu) & ~0xfffu);   /* selector-exhaustion path (in practice unreachable) */
+#endif
         return 0;
     }
     dpmi_note_sel_base((uint16_t)sel, base);

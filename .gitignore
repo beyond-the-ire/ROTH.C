@@ -15,3 +15,9 @@ roth_c/third_party/
 
 # built example plugins (sources are tracked; binaries are not)
 sdk/examples/*/plugin.so
+
+# built game binaries (all axes)
+/roth_c/roth
+/roth_c/roth-vanilla
+/roth_c/rothc.exe
+/roth_c/rothc-vanilla.exe

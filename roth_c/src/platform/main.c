@@ -15,14 +15,16 @@
 #include "calltrace.h"
 #include "capture.h"
 
-#include <asm/ldt.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#ifndef _WIN32
+#include <asm/ldt.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
-#include <unistd.h>
+#endif
 
 #ifdef ROTH_STANDALONE
 /* M1 SDL fold-in (task #102 / docs/SDL3_FOLD_DESIGN.md): the in-process SDL window + the
@@ -54,6 +56,12 @@ void shm_setup(void)
     if (g_shm)
         return;
 #endif
+#ifdef _WIN32
+    /* The shared-memory publish path exists for an out-of-process viewer — a POSIX-only facility.
+     * The window reads its framebuffer in-process, so nothing here is needed on this platform. */
+    LOGE("shared-memory framebuffer publishing is not available on this platform\n");
+    return;
+#else
     int fd = shm_open(ROTH_SHM_NAME, O_CREAT | O_RDWR, 0600);
     if (fd < 0) {
         LOGE("shm_open failed: %s (running headless)\n", strerror(errno));
@@ -79,6 +87,7 @@ void shm_setup(void)
     g_shm->host_alive = 1;
     LOGE("shared framebuffer ready at " ROTH_SHM_NAME
          " — run recomp/viewer/roth-view\n");
+#endif /* !_WIN32 */
 }
 
 #ifdef ROTH_STANDALONE
@@ -117,6 +126,14 @@ static void mem_setup(void)
 {
     if (g_shm)
         return;
+#ifdef _WIN32
+    /* A private, in-process framebuffer buffer the window reads directly. */
+    g_shm = calloc(1, sizeof(struct roth_shm));
+    if (!g_shm) {
+        LOGE("private framebuffer allocation failed\n");
+        return;
+    }
+#else
     g_shm = mmap(NULL, sizeof(struct roth_shm), PROT_READ | PROT_WRITE,
                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (g_shm == MAP_FAILED) {
@@ -124,6 +141,7 @@ static void mem_setup(void)
         LOGE("private framebuffer mmap failed: %s\n", strerror(errno));
         return;
     }
+#endif
     memset(g_shm, 0, sizeof *g_shm);
     g_shm->magic = ROTH_SHM_MAGIC;
     g_shm->width = ROTH_FB_W;
@@ -178,6 +196,7 @@ static void resolve_paths(const char *argv0, int game_dir_given)
 static void *game_main(void *arg)
 {
     (void)arg;
+#ifndef _WIN32
     sigset_t s;
     sigemptyset(&s);
     sigaddset(&s, SIGALRM);
@@ -187,9 +206,11 @@ static void *game_main(void *arg)
     /* standalone runs FLAT (no game LDT selectors loaded), so fs/gs during game execution are this
      * thread's glibc TLS. The SIGALRM/SIGTERM handlers swap fs/gs to g_host_fs/g_host_gs — which
      * must therefore be THIS thread's TLS (making the swap a true no-op), NOT main()'s TLS, or libc
-     * called from the handler would read the wrong thread's TLS. Re-capture them on the game thread. */
+     * called from the handler would read the wrong thread's TLS. Re-capture them on the game thread.
+     * None of this applies where the tick is not signal-delivered and the thread selectors stay put. */
     __asm__ volatile("mov %%fs, %0" : "=r"(g_host_fs));
     __asm__ volatile("mov %%gs, %0" : "=r"(g_host_gs));
+#endif
     roth_boot();
     LOGE("game_main: roth_boot returned — game exited (code %d)\n", g_exit_code);
     sfx_trace_exit_dump();   /* SFX-dropout trace: windowed clean-quit flush (game thread, quiesced) */
@@ -200,7 +221,11 @@ static void *game_main(void *arg)
 #endif /* ROTH_STANDALONE */
 
 /* ---------------------------------------------------------------- LDT -- */
-
+/* Here the selectors are backed by a real hardware descriptor table. Platforms without runtime
+ * descriptor-table access provide a pure-software selector ledger with the same interface (the
+ * far-pointer services resolve selectors to linear addresses in software either way); those bodies
+ * live in the per-OS seam. */
+#ifndef _WIN32
 static int modify_ldt_write(struct user_desc *d)
 {
     return (int)syscall(SYS_modify_ldt, 0x11, d, sizeof *d);
@@ -283,6 +308,7 @@ void map_fixed(uint32_t base, uint32_t size, int prot)
         exit(1);
     }
 }
+#endif /* !_WIN32 — descriptor-table + fixed-mapping bodies (the seam provides the Windows ones) */
 
 /* load_blob / build_psp_env / enter_game / restore_host_segments load + jump into the ORIGINAL
  * ROTH.EXE object images — used ONLY by the trap-host boot (main()'s #else branch). Under
@@ -362,9 +388,10 @@ static void restore_host_segments(void)
 #endif /* !ROTH_STANDALONE */
 
 /* SIGTERM: dump the mode-13h framebuffer as PPM and exit — headless
- * "screenshot" until the SDL window exists. */
+ * "screenshot" until the SDL window exists. Signal-driven dev instrument; POSIX platforms only. */
 extern uint8_t g_dac_rgb[768];
 
+#ifndef _WIN32
 static void dump_screen(int sig)
 {
     (void)sig;
@@ -413,14 +440,17 @@ static void show_eip(int sig, siginfo_t *si, void *ucv)
                      eip - OBJ_DELTA);
     write(2, buf, (size_t)n);
 }
+#endif /* !_WIN32 — signal-driven screenshot/EIP-probe instruments */
 
 int main(int argc, char **argv)
 {
+#ifndef _WIN32
     signal(SIGTERM, dump_screen);
     struct sigaction pa = {0};
     pa.sa_sigaction = show_eip;
     pa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGUSR1, &pa, NULL);
+#endif
     const char *obj_paths[3] = {
         "recomp/build/obj1.bin", "recomp/build/obj2.bin", "recomp/build/obj3.bin",
     };
@@ -563,12 +593,14 @@ int main(int argc, char **argv)
      * game thread (the only one that unblocks them). The child inherits this mask at creation. SDL
      * then owns a signal-quiet main thread (the SDL video subsystem must run on the thread that
      * called SDL_Init). */
+#ifndef _WIN32
     sigset_t block, oldmask;
     sigemptyset(&block);
     sigaddset(&block, SIGALRM);
     sigaddset(&block, SIGTERM);
     sigaddset(&block, SIGUSR1);
     pthread_sigmask(SIG_BLOCK, &block, &oldmask);
+#endif
 
     pthread_attr_t attr;
     pthread_attr_init(&attr);
@@ -579,7 +611,9 @@ int main(int argc, char **argv)
     pthread_attr_destroy(&attr);
     if (perr != 0) {
         LOGE("pthread_create(game) failed (%d) — falling back to headless main-thread boot\n", perr);
+#ifndef _WIN32
         pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+#endif
         roth_boot();
         sfx_trace_exit_dump();   /* SFX-dropout trace: fallback headless clean-quit flush */
         LOGE("game exited with code %d\n", g_exit_code);
