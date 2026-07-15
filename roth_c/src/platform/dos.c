@@ -5,6 +5,9 @@
 
 #include <ctype.h>
 #include <fcntl.h>
+#ifndef O_BINARY
+#define O_BINARY 0   /* hosts without a text/binary file-mode distinction (POSIX) read verbatim */
+#endif
 #ifndef _WIN32
 #include <fnmatch.h>   /* the Windows build gets a compact fnmatch via roth_host.h */
 #endif
@@ -148,7 +151,11 @@ static int translate_open(const char *dospath, int flags, mode_t mode)
     if (resolve_dos_path(dospath, full, sizeof full,
                          (flags & O_CREAT) != 0) != 0)
         return -1;
-    return open(full, flags, mode);
+    /* DOS has no text/binary distinction — every byte is read verbatim. Some hosts (Windows)
+     * default file descriptors to a text translation that stops a read at the first 0x1A byte and
+     * folds CR/LF, which silently truncates the game's binary data files. Force binary so reads
+     * return the whole file. O_BINARY is absent (and a no-op) where the host is already binary. */
+    return open(full, flags | O_BINARY, mode);
 }
 
 /* ---- DOS findfirst/findnext (AH=4E/4F) -----------------------------------
