@@ -1,6 +1,6 @@
-# ROTH.C
+# ![ROTH.C banner](images/ROTH.C_banner.png)
 
-**A native recreation of `ROTH.EXE`, the engine of _Realms of the Haunting_ (1996), as verified,
+**ROTH.C, a native recreation of `ROTH.EXE`, the engine of _Realms of the Haunting_ (1996), as verified,
 readable C, with a built-in modding platform.**
 
 _Realms of the Haunting_ shipped as a DOS program. ROTH.C is that program's engine, reconstructed
@@ -11,7 +11,7 @@ working mouse capture, music, and sound. No DOSBox required!
 The game's content is not included; you simply take a couple files from this project and drop it
 into your existing Realms of the Haunting installation folder and you can play.
 
-## Playing
+## ![Playing banner](images/ROTH.C_playing_banner.png)
 
 1. Download the release bundle: `roth` (the engine), `libSDL3.so.0`, `gm.sf2` (soundfont), and an
    empty `mods/` folder.
@@ -24,13 +24,13 @@ version of the game relies on using a soundfont to determine how to play the MID
 This is the reason why `gm.sf2` needs to be copied over as well. This also means that you're free
 to use your own soundfont without needing specialized MIDI-playing software.
 
-## System
+## ![System banner](images/ROTH.C_system_banner.png)
 
 Currently, only Linux x86 is supported, but I am working on the Windows version next. The engine is
 a 32-bit program by nature, which is kept preserverd, so 32-bit runtime libraries are required
 (the release bundles its own SDL3).
 
-## Mods
+## ![Mods banner](images/ROTH.C_mods_banner.png)
 
 > First-party mods can be found here: [`roth-mods`](https://github.com/beyond-the-ire/roth-mods)
 
@@ -39,7 +39,7 @@ in the installation directory (see step 2 under the Playing section above) and d
 
 Mods themselves are just folders with a few files in them. See [Modding](#modding) for more information.
 
-## Building from source
+## ![Building from source banner](images/ROTH.C_build_banner.png)
 
 Prerequisites: `gcc` with 32-bit multilib support, GNU `make`, `python3`, binutils, and the 32-bit
 SDL3 build (fetches a pinned SDL release; needs `cmake`, `git`, network access,
@@ -65,7 +65,7 @@ tools.
   Mods are impossible by construction. The reference artifact for anyone who wants the
   reconstruction and nothing else.
 
-## Modding
+## ![Modding banner](images/ROTH.C_modding_banner.png)
 
 ROTH.C is built to be modded. Mods are native plugins loaded at startup from `mods/<name>/` —
 users install them by extracting a folder, and remove them by deleting it. A mod can patch game
@@ -85,7 +85,7 @@ exit), `--scale N` (initial window scale). The full list is in
   [`roth-mods`](https://github.com/beyond-the-ire/roth-mods) hosts downloadable mods (key
   rebinding, an item browser, an enlarged document viewer, …), each a drop-in folder.
 
-## Repository layout
+## ![Repository layout banner](images/ROTH.C_repository_banner.png)
 
 | path                   | contents                                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -96,7 +96,7 @@ exit), `--scale N` (initial window scale). The full list is in
 | `tools/`               | the SDK generators/validators and the SDL3 build script                                                      |
 | `docs/reference/`      | machine-readable reference data the SDK tooling consumes                                                     |
 
-## Fidelity — the project's one law
+## ![Fidelity banner](images/ROTH.C_fidelity_banner.png)
 
 `roth_c/src/engine/` is a **preservation artifact**. It reproduces the original engine's behavior (+ its quirks)
 with every function verified against the original executable, at the
@@ -114,7 +114,7 @@ Consequences worth knowing:
   C closer to the original's actual behavior, with evidence. See
   [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Credits
+## ![Credits banner](images/ROTH.C_credits_banner.png)
 
 - **_Realms of the Haunting_** was developed by **Gremlin Interactive** (1996). This project is a
   fan reconstruction and is not affiliated with, endorsed by, or connected to the game's
@@ -122,7 +122,7 @@ Consequences worth knowing:
 - The bundled soundfont is **GeneralUser GS** by S. Christian Collins.
 - Built with **SDL 3** and **TinySoundFont**.
 
-## License
+## ![License banner](images/ROTH.C_license_banner.png)
 
 Two-part (see [`LICENSE`](LICENSE) for the full text):
 
