@@ -11,7 +11,9 @@
 #include "sys.h"
 #include "roth_host.h"
 
+#define PSAPI_VERSION 2   /* K32-prefixed psapi entry points, resident in kernel32 */
 #include <windows.h>
+#include <psapi.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -412,6 +414,37 @@ int sys_enum_dir(const char *dir, int (*cb)(const char *name, void *ud), void *u
  * address returns that address or fails outright (it never relocates), the direct
  * analog of a fail-if-occupied fixed mapping; a miss is fatal, matching the
  * loader's contract that the arena live at its pinned addresses. */
+/* On a reservation failure, dump the low address space so the log answers WHAT is
+ * occupying the pinned window: walk VirtualQuery over the first 8 MB and print one
+ * line per region (base, end, state, protection, type, and the owning module when
+ * the region is a mapped image). The game cannot run without its pinned windows, so
+ * a failure here is fatal and the map is the entire diagnosis. */
+static void dump_low_regions(void)
+{
+    LOGE("low address-space map (the pinned windows must be FREE):\n");
+    uintptr_t addr = 0;
+    while (addr < 0x800000u) {
+        MEMORY_BASIC_INFORMATION mi;
+        if (!VirtualQuery((void *)addr, &mi, sizeof mi))
+            break;
+        if (mi.State != MEM_FREE) {
+            const char *state = (mi.State == MEM_COMMIT) ? "commit" : "reserve";
+            const char *type  = (mi.Type == MEM_IMAGE)   ? "image"
+                              : (mi.Type == MEM_MAPPED)  ? "mapped"
+                              : (mi.Type == MEM_PRIVATE) ? "private" : "?";
+            char owner[MAX_PATH] = "";
+            if (mi.Type == MEM_IMAGE || mi.Type == MEM_MAPPED)
+                GetMappedFileNameA(GetCurrentProcess(), mi.BaseAddress,
+                                   owner, sizeof owner);
+            LOGE("  %08x..%08x %-7s %-7s prot=%03lx %s\n",
+                 (unsigned)(uintptr_t)mi.BaseAddress,
+                 (unsigned)((uintptr_t)mi.BaseAddress + mi.RegionSize),
+                 state, type, (unsigned long)mi.Protect, owner);
+        }
+        addr = (uintptr_t)mi.BaseAddress + mi.RegionSize;
+    }
+}
+
 void map_fixed(uint32_t base, uint32_t size, int prot)
 {
     uint32_t lo = base & ~0xfffu;
@@ -421,6 +454,7 @@ void map_fixed(uint32_t base, uint32_t size, int prot)
     if (p != (void *)(uintptr_t)lo) {
         LOGE("VirtualAlloc 0x%x..0x%x failed (got %p): %lu\n",
              lo, hi, p, (unsigned long)GetLastError());
+        dump_low_regions();
         exit(1);
     }
 }
