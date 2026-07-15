@@ -1,6 +1,8 @@
 # build outputs
 roth_c/build/
 roth_c/build-vanilla/
+roth_c/build-mingw/
+roth_c/build-mingw-vanilla/
 roth_c/roth-host-imgfree
 roth_c/roth-host-vanilla
 roth_c/dist/
