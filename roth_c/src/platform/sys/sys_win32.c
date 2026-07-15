@@ -166,8 +166,20 @@ static int hijackable(const CONTEXT *ctx)
     return 1;
 }
 
+/* Diagnostic override: with ROTH_WIN_TICK_DIRECT set, the timer thread runs the tick body
+ * itself instead of hijacking the game thread. This is NOT correct for real play (the body
+ * touches state the game thread also uses), but it isolates the context-hijack mechanism when
+ * diagnosing a fault: if a problem disappears in direct mode, the hijack is implicated. */
+static int g_tick_direct = -1;
+
 static void tick_fire(void)
 {
+    if (g_tick_direct < 0)
+        g_tick_direct = getenv("ROTH_WIN_TICK_DIRECT") ? 1 : 0;
+    if (g_tick_direct) {
+        roth_tick_isr();
+        return;
+    }
     if (!g_game_thread)
         return;
     if (SuspendThread(g_game_thread) == (DWORD)-1)
@@ -241,6 +253,9 @@ void sys_tick_start(unsigned period_us)
              (unsigned long)GetLastError());
         return;
     }
+    LOGE("windows tick: %s, %u us period, image [0x%zx,0x%zx)\n",
+         (getenv("ROTH_WIN_TICK_DIRECT") ? "DIRECT (diagnostic, no hijack)" : "context-hijack"),
+         period_us, g_image_lo, g_image_hi);
     arm_timer(g_period_us);
 }
 
