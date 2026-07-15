@@ -111,9 +111,14 @@ SDL3_LIB := $(SDL3_DIR)/lib
 SDL_OBJS   := $(BUILD)/sdl_host.o $(BUILD)/sdl_audio.o $(BUILD)/sdl_tsf.o
 ifeq ($(CROSS),mingw)
 # WINDOWS: -lSDL3 resolves the import lib libSDL3.dll.a; SDL3.dll is found beside rothc.exe at
-# runtime (the Windows loader default — no rpath/$ORIGIN analog). -pthread = winpthreads (game_main
-# is a pthread). No -rpath (PE has none).
-SDL_LDLIBS := -pthread -L$(SDL3_LIB) -lSDL3 -lm
+# runtime (the Windows loader default — no rpath/$ORIGIN analog). No -rpath (PE has none).
+# The MinGW support runtime is linked STATICALLY so the shipped folder is self-contained: the only
+# non-system DLL beside the exe is SDL3.dll. -static-libgcc folds libgcc into the image; the
+# -Bstatic..-Bdynamic pair links winpthreads (game_main is a pthread) INTO the exe instead of
+# depending on libwinpthread-1.dll, while leaving the system import libraries (kernel32, the UCRT)
+# dynamic. A blanket -static is deliberately NOT used: it would also force a static SDL3, which then
+# fails to link on unresolved COM/mmdevice imports.
+SDL_LDLIBS := -L$(SDL3_LIB) -lSDL3 -lm -static-libgcc -Wl,-Bstatic,-lwinpthread,-Bdynamic
 else
 # LINUX DUAL rpath: '$ORIGIN' is searched FIRST so a libSDL3.so.0 bundled beside the binary (the
 # `make dist` product folder) wins; in-tree that dir has no SDL, so the loader falls through to the
@@ -121,6 +126,22 @@ else
 # ('$$ORIGIN' -> make emits the literal $ORIGIN; the single quotes stop the shell expanding it.)
 SDL_LDLIBS := -pthread -L$(SDL3_LIB) -lSDL3 -lm \
               -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,$(abspath $(SDL3_LIB))
+endif
+
+# --- Windows application icon + version resource (CROSS=mingw only, optional) --------------------
+# rothc.exe embeds an application icon (and version info) when an icon file is present. The artwork
+# is a DROP-IN: place a Windows .ico at res/rothc.ico and the next `make CROSS=mingw ...` compiles it
+# into the executable automatically (Explorer and the taskbar show the first icon in the image). With
+# no icon file the build succeeds and links no resource — the executable is simply icon-less until
+# the art lands. windres is the PE resource compiler, so this is only ever active on the CROSS=mingw
+# axis; the native Linux build never references it and is unchanged.
+WIN_ICON    := res/rothc.ico
+WINDRES     := $(XPFX)windres
+WIN_RES_OBJ :=
+ifeq ($(CROSS),mingw)
+  ifneq ($(wildcard $(WIN_ICON)),)
+    WIN_RES_OBJ := $(BUILD)/rothc_res.o
+  endif
 endif
 
 # flag matrix:
@@ -197,7 +218,7 @@ else
 MOD_LINK_OBJS := $(PLUGIN_OBJS) $(OVERRIDE_OBJS)
 endif
 
-.PHONY: all viewer clean dist roth-host-imgfree roth-host-vanilla
+.PHONY: all viewer clean dist dist-win _dist-win-guard roth-host-imgfree roth-host-vanilla
 all: $(PRODUCT_BIN)
 
 # compatibility aliases (old internal artifact names) — keep every pre-rename invocation working.
@@ -210,7 +231,7 @@ roth-host-vanilla: roth-vanilla         # compatibility alias -> the vanilla fla
 # instrument), but they are dead code in the standalone build — calltrace_init/capture_init are in
 # main.c's trap-only #else branch and the dispatch calls live in the gc'd int-trap servicer. They are
 # therefore NOT linked here. (Proven: nm on the result carries no calltrace_/capture_.)
-$(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS)
+$(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS) $(WIN_RES_OBJ)
 	$(CC) $(LDFLAGS) -Wl,--gc-sections -o $@ $^ $(SDL_LDLIBS)
 ifeq ($(CROSS),mingw)
 	@echo "== nm-clean assertion (PE, underscore-aware): no original-bytes bridge (call_orig / lift_install / trampoline / int3 resume) =="
@@ -316,6 +337,68 @@ dist: roth
 	@echo "== dist/ ldd (libSDL3 must resolve to the bundled \$$ORIGIN copy) =="; \
 	 (cd $(DIST) && ldd ./roth | grep -i sdl3) || true
 
+# --- make CROSS=mingw dist-win: the shippable, self-contained Windows folder --------------------
+# Layout (dist-win/, git-ignored) — extract these beside the game files (CONFIG.INI, ROTH.RES,
+# DBASE*.DAT, *.DAS) and run rothc.exe:
+#   rothc.exe      the game executable (a stripped copy of the moddable Windows binary). The MinGW
+#                  support runtime is linked in statically, so no libwinpthread-1.dll / libgcc DLL
+#                  is needed beside it.
+#   SDL3.dll       the bundled Windows SDL3 (found automatically beside the exe by the loader)
+#   gm.sf2         the General MIDI SoundFont (GeneralUser GS) — replaceable (see README.txt)
+#   README.txt     install + usage note
+#   mods/          empty; drop plugin folders (mods/<name>/plugin.dll) here at runtime
+# Invoke on the CROSS axis: `make -C roth_c CROSS=mingw dist-win` (the guard below enforces it so
+# PRODUCT_BIN, STRIP and the moddable flavor resolve to their Windows values).
+DIST_WIN := dist-win
+define DIST_README_WIN
+Realms of the Haunting — native host (image-free recompilation) — Windows
+=========================================================================
+
+A single self-contained executable that plays the game from the original content
+files (ROTH.RES, DBASE*.DAT, *.DAS, CONFIG.INI). No DOSBox, no original executable.
+
+INSTALL
+  1. Copy everything in this folder (rothc.exe, SDL3.dll, gm.sf2, README.txt) into
+     your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
+  2. Run:  rothc.exe
+     With no arguments it uses its own directory as the game directory and opens a
+     window with video, input and audio. Close the window (or press the usual quit)
+     to exit. Saves are written to ROTH\SAVEGAME\ exactly like the original.
+
+USEFUL OPTIONS
+  rothc.exe --game-dir DIR   play content in DIR instead of the exe's own folder
+  rothc.exe --scale N        initial window scale (also ROTH_SCALE=N)
+  ROTH_SF2=C:\path\to.sf2    use a different SoundFont for the MIDI music (see below)
+  ROTH_MIDI=0                disable the MIDI music (digital SFX/speech still play)
+
+SOUNDFONT (MIDI music)
+  The bundled gm.sf2 is "GeneralUser GS 2.0.3" by S. Christian Collins
+  (GeneralUser GS License v2.0, which permits redistribution). You may replace it
+  with any General MIDI .sf2: either overwrite gm.sf2 in this folder, or point
+  ROTH_SF2 at your own file. If no SoundFont is found the game runs without music.
+
+SDL3.dll
+  The bundled SDL3 is found automatically (it sits beside the executable). It is
+  unmodified upstream SDL3 (zlib license).
+endef
+export DIST_README_WIN
+
+# a guard prerequisite so a stray `make dist-win` (no CROSS) fails cleanly BEFORE building anything,
+# rather than composing a Linux binary into a Windows folder.
+_dist-win-guard:
+	@test "$(CROSS)" = "mingw" || { echo "dist-win requires CROSS=mingw (got CROSS='$(CROSS)')"; exit 1; }
+
+dist-win: _dist-win-guard $(PRODUCT_BIN)
+	rm -rf $(DIST_WIN)
+	mkdir -p $(DIST_WIN)
+	cp $(PRODUCT_BIN) $(DIST_WIN)/rothc.exe
+	$(STRIP) $(DIST_WIN)/rothc.exe
+	cp third_party/sdl3-win32/bin/SDL3.dll $(DIST_WIN)/SDL3.dll
+	cp $(PLATFORM)/viewer/gm.sf2 $(DIST_WIN)/gm.sf2
+	printf '%s\n' "$$DIST_README_WIN" > $(DIST_WIN)/README.txt
+	mkdir -p $(DIST_WIN)/mods   # drop plugin folders (mods/<name>/plugin.dll) here at runtime
+	@echo "== dist-win/ built =="; ls -la $(DIST_WIN)
+
 ENGINE_HDRS := $(ENGINE)/engine.h $(ENGINE)/common.h $(ENGINE)/g_names.h
 
 $(BUILD):
@@ -361,6 +444,11 @@ $(BUILD)/sys_posix.o: $(PLATFORM)/sys/sys_posix.c $(PLATFORM)/sys/sys.h $(PLATFO
 # periodic tick is a marked not-yet stub). Compiled plain; joins the link on the CROSS=mingw axis.
 $(BUILD)/sys_win32.o: $(PLATFORM)/sys/sys_win32.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h $(PLATFORM)/win32_compat.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+# the Windows application icon/version resource -> COFF object. Compiled ONLY on CROSS=mingw and ONLY
+# when res/rothc.ico exists (WIN_RES_OBJ is empty otherwise, so this rule never fires and the link
+# carries no resource). Drop a Windows .ico at res/rothc.ico to brand the executable.
+$(BUILD)/rothc_res.o: res/rothc.rc $(WIN_ICON) | $(BUILD)
+	$(WINDRES) -I$(dir $(WIN_ICON)) $< -O coff -o $@
 
 # --- the always-native host services (plain CFLAGS) ---
 $(BUILD)/dos.o:                 $(PLATFORM)/dos.c                 | $(BUILD) ; $(CC) $(CFLAGS) -c -o $@ $<

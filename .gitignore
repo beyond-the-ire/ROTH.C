@@ -6,6 +6,7 @@ roth_c/build-mingw-vanilla/
 roth_c/roth-host-imgfree
 roth_c/roth-host-vanilla
 roth_c/dist/
+roth_c/dist-win/
 roth_c/src/platform/viewer/roth-view
 roth_c/src/platform/viewer/roth-inject
 *.o

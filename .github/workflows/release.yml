@@ -65,3 +65,49 @@ jobs:
             ROTH.C-*-linux-x86.tar.gz
             roth-sdk-*.tar.gz
           generate_release_notes: true
+
+  # The Windows player bundle — ROTH.C-<tag>-windows-x86.zip. A separate job because the MinGW
+  # cross toolchain differs from the Linux i386 job. It builds win32 SDL3 from source (same pin as
+  # the Linux job), composes the self-contained dist-win folder via the CROSS=mingw Makefile axis,
+  # and attaches the zip to the SAME release the Linux job creates (action-gh-release is additive
+  # per tag). rothc.exe links the MinGW support runtime statically, so the zip needs no runtime DLL
+  # beyond the bundled SDL3.dll.
+  release-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the MinGW i686 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+            binutils-mingw-w64-i686 cmake ninja-build python3 git zip
+
+      - name: Cache the win32 SDL3 build
+        id: sdl-win-cache
+        uses: actions/cache@v4
+        with:
+          # Same sub-path + key as the CI cross job, so the two share one cached SDL3 build.
+          path: roth_c/third_party/sdl3-win32
+          key: sdl3-win32-v1-${{ runner.os }}-${{ hashFiles('tools/build_sdl3_win32.sh', 'tools/build_sdl3_i386.sh') }}
+
+      - name: Build win32 SDL3 (cache miss only)
+        if: steps.sdl-win-cache.outputs.cache-hit != 'true'
+        run: tools/build_sdl3_win32.sh
+
+      - name: Build the Windows bundle
+        run: make -C roth_c CROSS=mingw dist-win
+
+      - name: Package the Windows zip
+        run: |
+          set -e
+          staging="ROTH.C-${GITHUB_REF_NAME}-windows-x86"
+          cp -r roth_c/dist-win "$staging"
+          zip -r "$staging.zip" "$staging"
+          ls -l "$staging.zip"
+
+      - name: Attach the Windows zip to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ROTH.C-*-windows-x86.zip
+          generate_release_notes: true
