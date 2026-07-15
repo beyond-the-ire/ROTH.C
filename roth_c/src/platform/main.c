@@ -547,11 +547,17 @@ int main(int argc, char **argv)
     }
 
     /* Pick the framebuffer backing on the main thread BEFORE the game thread starts (design §3/§4):
-     * shm_open for the external-attach cases, a private anon map for the windowed default. */
-    if (want_shm)
-        shm_setup();   /* /dev/shm/roth_fb — window + roth-inject/viewer attach ("both") */
-    else
-        mem_setup();   /* private in-process framebuffer — windowed, no /dev/shm file */
+     * shm_open for the external-attach cases, a private anon map for the windowed default. The audio
+     * and MIDI rings follow the SAME decision (audio_select_backing, read by audio_init() on the game
+     * thread): private in-process rings for the windowed default, named shm objects when publishing
+     * for an external viewer. */
+    if (want_shm) {
+        shm_setup();              /* /dev/shm/roth_fb — window + roth-inject/viewer attach ("both") */
+        audio_select_backing(0);  /* /roth_audio + /roth_midi named objects, for the viewer */
+    } else {
+        mem_setup();              /* private in-process framebuffer — windowed, no /dev/shm file */
+        audio_select_backing(1);  /* private in-process audio/MIDI rings — windowed default */
+    }
 
     /* Block the game-thread signals on main so ITIMER_REAL / SIGTERM / SIGUSR1 are delivered to the
      * game thread (the only one that unblocks them). The child inherits this mask at creation. SDL

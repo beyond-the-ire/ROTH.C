@@ -14,8 +14,29 @@
 
 #include "roth_host.h"
 
+struct roth_audio;   /* the PCM ring (shared_audio.h) */
+struct roth_midi;    /* the MIDI-event ring (shared_midi.h) */
+
 /* Plant the int3 hooks (call once after obj1 is mapped+loaded, before entry). */
 void audio_init(void);
+
+/* Select where the PCM/MIDI ring mailboxes are backed, before audio_init() runs.
+ * in_process != 0 backs them with private in-process memory (the windowed default,
+ * read directly by the in-process consumer); in_process == 0 backs them with named
+ * shared-memory objects (so a separate viewer process can attach). Mirrors the
+ * framebuffer backing choice and must be called on the boot thread before the game
+ * thread starts. If never called, the shared backing is used. */
+void audio_select_backing(int in_process);
+
+/* Non-zero when the in-process backing was selected (the consumer uses this to
+ * decide whether to read the producer's ring pointers directly or map its own). */
+int audio_backing_in_process(void);
+
+/* The producer's ring pointers, for a consumer sharing this address space. Each is
+ * NULL until audio_init() has set the ring up (MIDI stays NULL when music is off).
+ * Only meaningful under the in-process backing. */
+struct roth_audio *audio_pcm_ring(void);
+struct roth_midi  *audio_midi_ring(void);
 
 /* Called at the very top of the SIGSEGV/SIGTRAP handler body. Returns 1 if the
  * fault was an audio dispatch/hook we handled (EIP advanced), 0 otherwise. */

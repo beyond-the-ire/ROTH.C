@@ -101,6 +101,36 @@ static struct roth_midi *g_midi; /* MIDI-event ring -> viewer SoundFont synth */
 static uint32_t g_au_rate = 22050, g_au_bits = 16, g_au_ch = 2, g_au_chunk;
 static int g_au_src_edi; /* 0 = tap ESI (mixed PCM), 1 = tap EDI */
 
+/* Where the PCM/MIDI ring mailboxes are backed. Two backings, one ring layout:
+ *   - in-process: a private anonymous mapping owned by this process. The window's
+ *     own audio consumer reads it directly in the same address space — nothing
+ *     external attaches. This is the windowed default.
+ *   - shared: a named shared-memory object, so a separate process can attach to
+ *     the same ring (the development display/audio viewer). Selected for the
+ *     headless/publish path.
+ * The choice is made once at boot, before the game thread starts, by the same
+ * decision that picks the framebuffer backing (audio_select_backing). It changes
+ * only WHERE the ring lives; the producers that fill it are unaffected. The
+ * default here is the shared backing so a caller that never selects (the
+ * differential-verification lane, which relies on the named object) is unchanged. */
+static int g_au_in_process;
+
+void audio_select_backing(int in_process)
+{
+    g_au_in_process = in_process ? 1 : 0;
+}
+
+int audio_backing_in_process(void)
+{
+    return g_au_in_process;
+}
+
+/* The producer's own ring pointers, so an in-process consumer can read the very
+ * bytes the producer writes instead of mapping a second view. NULL until
+ * audio_init() has set the ring up (or, for MIDI, when music is disabled). */
+struct roth_audio *audio_pcm_ring(void)  { return g_au; }
+struct roth_midi  *audio_midi_ring(void) { return g_midi; }
+
 /* fn 0xa hands the SOS three values inside the caller's far-args segment
  * (fargSel): EDI = output callback (code), ESI = base of 32 voice structs
  * (0x6c each; 0x4fd30 spreads them into the voice table 0x97440), ECX = a
@@ -386,21 +416,34 @@ static void audio_shm_setup(void)
          g_drive_fn ? "on" : "disabled", sfn,
          g_drive_div ? "fixed(ROTH_STREAM_DIV)" : "auto");
 
-    int fd = shm_open(ROTH_AUDIO_SHM_NAME, O_CREAT | O_RDWR, 0600);
-    if (fd < 0) {
-        ALOG("audio shm_open failed: no sound output\n");
-        return;
-    }
-    if (ftruncate(fd, sizeof(struct roth_audio)) != 0) {
+    if (g_au_in_process) {
+        /* Private in-process backing: a plain anonymous mapping this process owns.
+         * No named object, so nothing external can attach — the window's own
+         * consumer reads these bytes directly. Freed at process exit. */
+        g_au = mmap(NULL, sizeof(struct roth_audio), PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (g_au == MAP_FAILED) {
+            g_au = NULL;
+            ALOG("audio in-process alloc failed: no sound output\n");
+            return;
+        }
+    } else {
+        int fd = shm_open(ROTH_AUDIO_SHM_NAME, O_CREAT | O_RDWR, 0600);
+        if (fd < 0) {
+            ALOG("audio shm_open failed: no sound output\n");
+            return;
+        }
+        if (ftruncate(fd, sizeof(struct roth_audio)) != 0) {
+            close(fd);
+            return;
+        }
+        g_au = mmap(NULL, sizeof(struct roth_audio), PROT_READ | PROT_WRITE,
+                    MAP_SHARED, fd, 0);
         close(fd);
-        return;
-    }
-    g_au = mmap(NULL, sizeof(struct roth_audio), PROT_READ | PROT_WRITE,
-                MAP_SHARED, fd, 0);
-    close(fd);
-    if (g_au == MAP_FAILED) {
-        g_au = NULL;
-        return;
+        if (g_au == MAP_FAILED) {
+            g_au = NULL;
+            return;
+        }
     }
     memset(g_au, 0, sizeof *g_au);
     g_au->magic = ROTH_AUDIO_MAGIC;
@@ -408,9 +451,9 @@ static void audio_shm_setup(void)
     g_au->channels = g_au_ch;
     g_au->bits = g_au_bits;
     g_au->ready = 1;
-    ALOG("audio out ready: %u Hz, %u-bit, %u ch, %u B/tick from %s "
-         "(run viewer to hear)\n", g_au_rate, g_au_bits, g_au_ch, g_au_chunk,
-         g_au_src_edi ? "edi" : "esi");
+    ALOG("audio out ready: %u Hz, %u-bit, %u ch, %u B/tick from %s (%s backing)\n",
+         g_au_rate, g_au_bits, g_au_ch, g_au_chunk, g_au_src_edi ? "edi" : "esi",
+         g_au_in_process ? "in-process" : "shared");
 }
 
 /* ---- CPU profiler (ROTH_PROFILE) ---------------------------------------- *
@@ -547,6 +590,19 @@ void audio_init(void)
         ALOG("init: MIDI deferred (%s at music-init 0x51681; set ROTH_MIDI=1 "
              "to enable). Null MIDI callbacks are skipped via the eip=0 guard.\n",
              g_standalone_boot ? "NO int3, image-free" : "int3");
+    } else if (g_au_in_process) {
+        /* MIDI enabled, private in-process backing (mirrors the PCM ring): a plain
+         * anonymous mapping the window's own synth consumer reads directly. */
+        g_midi = mmap(NULL, sizeof(struct roth_midi), PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (g_midi == MAP_FAILED)
+            g_midi = NULL;
+        if (g_midi) {
+            memset(g_midi, 0, sizeof *g_midi);
+            g_midi->magic = ROTH_MIDI_MAGIC;
+            g_midi->ready = 1;
+            ALOG("MIDI ring ready (in-process backing) -> SoundFont synth\n");
+        }
     } else {
         /* MIDI enabled: set up the host->viewer MIDI-event ring for the synth. */
         int mfd = shm_open(ROTH_MIDI_SHM_NAME, O_CREAT | O_RDWR, 0600);
