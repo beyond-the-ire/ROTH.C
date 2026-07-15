@@ -213,10 +213,29 @@ roth-host-vanilla: roth-vanilla         # compatibility alias -> the vanilla fla
 $(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS)
 	$(CC) $(LDFLAGS) -Wl,--gc-sections -o $@ $^ $(SDL_LDLIBS)
 ifeq ($(CROSS),mingw)
-	@echo "== [CROSS=mingw] PE post-link gates NOT YET IMPLEMENTED — skipped =="
-	@echo "   $@ is a PE image, not ELF; the ELF nm/readelf gates below are skipped here. The"
-	@echo "   PE-correct variants (underscore-aware nm-clean + objdump .text pad checks)"
-	@echo "   are TODO before any Windows release ships."
+	@echo "== nm-clean assertion (PE, underscore-aware): no original-bytes bridge (call_orig / lift_install / trampoline / int3 resume) =="
+	@# i686-PE prefixes C symbols with a leading underscore, so the native gate's raw grep would
+	@# silently miss _call_orig (a false PASS). Strip that decoration, then apply the SAME forbidden
+	@# list to defined globals only. Unlike the ELF linker, the PE linker's --gc-sections does not
+	@# drop a small set of unreferenced, fail-closed veneers (call_orig/call_orig_raw/call_orig_far
+	@# and the two NULL int3 suspend/resume function pointers): on the image-free path they bridge to
+	@# nothing (the far veneer aborts if ever entered), and the native gate over the identical sources
+	@# already proves nothing reaches them. They are enumerated and excused here; ANY other bridge
+	@# symbol — an install/live-swap trampoline, or a newly introduced one — survives the filter and
+	@# fails the gate.
+	@if $(NM) $@ | sed -E 's/^([0-9a-fA-F]+ [A-Za-z] )_/\1/' | awk '$$2 ~ /^[A-Z]$$/ {print $$3}' \
+	     | grep -wE 'call_orig|call_orig_raw|call_orig_far|lift_install|lift_resume_int3s|lift_suspend_int3s|g_os_resume_int3s|g_os_suspend_int3s|trampoline' \
+	     | grep -vxE 'call_orig|call_orig_raw|call_orig_far|g_os_resume_int3s|g_os_suspend_int3s' \
+	     | grep -v '^sos_user_callback_trampoline$$' | grep . ; then \
+	   echo "FAIL: image-free binary retains an original-bytes bridge symbol"; exit 1; \
+	 else echo "PASS: $(PRODUCT_BIN) is call_orig/lift_install/trampoline-free (bar the enumerated inert veneers)"; fi
+  ifeq ($(FLAVOR),moddable)
+	@echo "== override-registry pad validation (PE, moddable flavor) =="
+	@$(PY) $(TOOLS)/sdk_override_validate.py --pe --objdump $(OBJDUMP) $@ || (echo "FAIL: PE override pad validation"; exit 1)
+  else
+	@echo "== vanilla flavor: NO override pads (PE; mods impossible by construction) =="
+	@$(PY) $(TOOLS)/sdk_override_validate.py --pe --expect-no-pads --objdump $(OBJDUMP) $@ || (echo "FAIL: PE vanilla pad leak"; exit 1)
+  endif
 else
 	@echo "== nm-clean assertion (no original-bytes bridge: call_orig / lift_install / trampoline / int3 resume) =="
 	@if nm $@ | grep -wE 'call_orig|call_orig_raw|call_orig_far|lift_install|lift_resume_int3s|lift_suspend_int3s|g_os_resume_int3s|g_os_suspend_int3s|trampoline' | grep -v sos_user_callback_trampoline; then \

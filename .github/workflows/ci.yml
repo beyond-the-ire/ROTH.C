@@ -80,8 +80,8 @@ jobs:
   # The MinGW i686 cross-build gate — NON-BLOCKING while the port is in progress
   # until it goes green (continue-on-error). It builds win32 SDL3 from source (same pin
   # as the Linux job) then attempts both Windows flavors via the CROSS=mingw Makefile axis. The
-  # CROSS=mingw LINK is EXPECTED to fail until the sys_win32 POSIX shims land
-  # (dlopen/VirtualAlloc/opendir/shm/...) — continue-on-error absorbs that, and the job still shows
+  # Both Windows flavors link and pass their PE post-link gates; the job stays non-blocking
+  # until the port ships (continue-on-error), then flips to a required gate. The job shows
   # how far it got. It flips to REQUIRED the day it boots green.
   cross-mingw:
     runs-on: ubuntu-latest
