@@ -10,8 +10,8 @@
  * their existing G8/G16/G32(0xADDR) sites (rider R5). These objects are the byte
  * SOURCE — they become the runtime storage itself only at the W6 model flip. Never
  * const: read-default SMC cells are host/lift-written, write-first cells are zero-
- * init C objects. IMGFREE-LANE ONLY: obj1_owned.o links solely into roth-host-
- * imgfree; the trap host maps the ORIGINAL obj1 bytes and never sees these symbols.
+ * init C objects. IMGFREE-LANE ONLY: obj1_owned.o links solely into the roth game
+ * binary; the trap host maps the ORIGINAL obj1 bytes and never sees these symbols.
  * The 4 fixup-carrying code-ptr tables (0x30780/0x3088c/0x32310/0x29e58) are NOT
  * here — they stay token-staged by imgfree_boot until the W6 token->&fn swap. */
 extern uint8_t g_config_keyword_template[60u];   /* 0x1049b +0x0049b size=0x3c image canonical */

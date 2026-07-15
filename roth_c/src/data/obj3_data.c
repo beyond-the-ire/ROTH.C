@@ -36,7 +36,8 @@
 /*   [0x007f1,+0x03d) g_held_key_move_table        w3_3_reloc_carrying  EXCISED (was nonzero) +12 reloc-slot(s) overlaid-then-relocated */
 /*   [0x0082e,+0x0b6) g_scancode_translate_table   w3_2_init_bulk  EXCISED (was nonzero) */
 /*   [0x008e4,+0x002) g_current_cursor_id          w3_2_init_bulk  EXCISED (was nonzero) */
-/*   [0x008e6,+0x057) g_cursor_mask_data           w6_1_interior_named  EXCISED (was nonzero) */
+/*   [0x008e6,+0x004) g_cursor_mask_data           w6_1_interior_named  EXCISED (was nonzero) */
+/*   [0x008ea,+0x053) p_cursor_mask_records        w6_1_interior_named  EXCISED (was nonzero) */
 /*   [0x0093d,+0x5d5) g_keymap_table               w3_3_reloc_carrying  EXCISED (was nonzero) +37 reloc-slot(s) overlaid-then-relocated */
 /*   [0x00f12,+0x2f6) g_font_descriptor            w1_text_font  EXCISED (was nonzero) */
 /*   [0x01208,+0x002) g_ui_slot_layout_table       w3_2_init_bulk  EXCISED (was nonzero) */

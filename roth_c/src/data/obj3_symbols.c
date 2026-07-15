@@ -36,7 +36,8 @@ const obj3_sym_t obj3_symtab[] = {
   { "g_held_key_move_table", 0x707f1u, 0x7f1u, 0x3du, 0x3du, 2, 8, 0, 1 },
   { "g_scancode_translate_table", 0x7082eu, 0x82eu, 0xb6u, 0xb6u, 2, 8, 0, 1 },
   { "g_current_cursor_id", 0x708e4u, 0x8e4u, 0x2u, 0x2u, 0, 16, 0, 1 },
-  { "g_cursor_mask_data", 0x708e6u, 0x8e6u, 0x57u, 0x57u, 2, 8, 0, 1 },
+  { "g_cursor_mask_data", 0x708e6u, 0x8e6u, 0x4u, 0x57u, 0, 32, 0, 1 },
+  { "p_cursor_mask_records", 0x708eau, 0x8eau, 0x53u, 0x53u, 2, 8, 0, 1 },
   { "g_keymap_table", 0x7093du, 0x93du, 0x5d5u, 0x5d5u, 2, 8, 0, 1 },
   { "g_font_descriptor", 0x70f12u, 0xf12u, 0x2f6u, 0x2f6u, 2, 8, 0, 1 },
   { "g_ui_slot_layout_table", 0x71208u, 0x1208u, 0x2u, 0x2u, 0, 16, 0, 1 },
@@ -666,7 +667,7 @@ const obj3_sym_t obj3_symtab[] = {
   { "errno", 0x97d44u, 0x27d44u, 0x4u, 0x4u, 2, 8, 1, 0 },
   { "_doserrno", 0x97d48u, 0x27d48u, 0x10428u, 0x10428u, 2, 8, 1, 0 },
 };
-const unsigned obj3_nsyms = 661u;
+const unsigned obj3_nsyms = 662u;
 
 static int nfail;
 static void sym_fail(const char *name, const char *what)
@@ -729,16 +730,17 @@ int obj3_symbols_selfcheck(void)
     CHK_OWNED_RELOC(g_held_key_move_table, 0x3du, 29);
     CHK_OWNED(g_scancode_translate_table, 0x82eu, 0xb6u);
     CHK_OWNED(g_current_cursor_id, 0x8e4u, 0x2u);
-    CHK_OWNED(g_cursor_mask_data, 0x8e6u, 0x57u);
-    CHK_OWNED_RELOC(g_keymap_table, 0x5d5u, 33);
+    CHK_OWNED(g_cursor_mask_data, 0x8e6u, 0x4u);
+    CHK_OWNED(p_cursor_mask_records, 0x8eau, 0x53u);
+    CHK_OWNED_RELOC(g_keymap_table, 0x5d5u, 34);
     CHK_OWNED(g_font_descriptor, 0xf12u, 0x2f6u);
     CHK_OWNED(g_ui_slot_layout_table, 0x1208u, 0x2u);
     CHK_OWNED(g_ui_slot_layout_table_ext, 0x120au, 0x2u);
     CHK_OWNED(g_ui_slot_layout_table_body, 0x120cu, 0x30u);
-    CHK_OWNED_RELOC(g_inventory_tab_context_map, 0x12au, 38);
+    CHK_OWNED_RELOC(g_inventory_tab_context_map, 0x12au, 39);
     CHK_OWNED(g_bit_mask_lut, 0x1366u, 0x1u);
     CHK_OWNED(g_bit_mask_lut_ext, 0x1367u, 0x9u);
-    CHK_OWNED_RELOC(g_choice_selected_index, 0x68cu, 41);
+    CHK_OWNED_RELOC(g_choice_selected_index, 0x68cu, 42);
     CHK_OWNED(g_mouse_speed, 0x19fcu, 0x138u);
     CHK_OWNED(g_vol_soundfx, 0x1b34u, 0xcu);
     CHK_OWNED(g_vol_speech, 0x1b40u, 0xcu);
@@ -757,10 +759,10 @@ int obj3_symbols_selfcheck(void)
     CHK_OWNED(g_current_vesa_bank, 0x1dc6u, 0x6u);
     CHK_OWNED(g_vesa_available, 0x1dccu, 0x1u);
     CHK_OWNED(g_init_stage_error_strings, 0x1dd0u, 0x160u);
-    CHK_OWNED_RELOC(g_anim_step_fn_table, 0x18u, 60);
+    CHK_OWNED_RELOC(g_anim_step_fn_table, 0x18u, 61);
     CHK_OWNED(g_command_rng, 0x1f48u, 0x4u);
     CHK_OWNED(g_msg_pool_damaged, 0x1f4cu, 0x34u);
-    CHK_OWNED_RELOC(g_world_span_variant_table, 0x100u, 63);
+    CHK_OWNED_RELOC(g_world_span_variant_table, 0x100u, 64);
     CHK_OWNED(g_sincos_table, 0x2080u, 0x400u);
     CHK_OWNED(g_snapshot_counter, 0x2480u, 0x2u);
     CHK_OWNED(g_snapshot_filenames, 0x2482u, 0x46u);
@@ -772,7 +774,7 @@ int obj3_symbols_selfcheck(void)
     CHK_OWNED(g_response_file_arg, 0x2538u, 0x4u);
     CHK_OWNED(g_stack_limit, 0x2544u, 0x18u);
     CHK_OWNED(g_dos_child_running, 0x255cu, 0x6u);
-    CHK_OWNED_RELOC(g_crt_memory_mode, 0x1cau, 75);
+    CHK_OWNED_RELOC(g_crt_memory_mode, 0x1cau, 76);
     CHK_OWNED(g_entity_damage_rng, 0x272cu, 0x4u);
     CHK_OWNED(g_ai_wander_rng, 0x2730u, 0x4u);
     CHK_OWNED(g_ai_anim_rng, 0x2734u, 0x4u);
@@ -795,9 +797,9 @@ int obj3_symbols_selfcheck(void)
     CHK_OWNED(g_sound_channel_volume, 0x370cu, 0x20u);
     CHK_OWNED(g_midi_channel_raw_volume, 0x372cu, 0xaccu);
     CHK_OWNED(g_sos_timer_base_rate, 0x41f8u, 0x4u);
-    CHK_OWNED_RELOC(g_sos_timer_event_countdown, 0x13d0u, 98);
+    CHK_OWNED_RELOC(g_sos_timer_event_countdown, 0x13d0u, 99);
     CHK_OWNED(environ, 0x55ccu, 0x44u);
-    CHK_OWNED_RELOC(g_heap_free_list, 0xda0u, 100);
+    CHK_OWNED_RELOC(g_heap_free_list, 0xda0u, 101);
     CHK_OWNED(g_dir_data, 0x63b0u, 0x50u);
     CHK_OWNED(g_dir_midi, 0x6400u, 0x50u);
     CHK_OWNED(g_dir_digi, 0x6450u, 0xa0u);

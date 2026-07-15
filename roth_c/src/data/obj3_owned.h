@@ -58,7 +58,8 @@ extern uint8_t g_keybit_mask_table_ext[7u];   /* 0x707ea +0x007ea init size=0x7 
 extern uint8_t g_held_key_move_table[61u];   /* 0x707f1 +0x007f1 init size=0x3d w3_3_reloc_carrying; RELOC-OWNED 12 slot(s) (0 data->data + 12 code->data) at +0x1,+0x6,+0xb,+0x10,+0x15,+0x1a,+0x1f,+0x24,+0x29,+0x2e,+0x33,+0x38 — reloc-pass overwrites, initializer holds pre-reloc placeholder */
 extern uint8_t g_scancode_translate_table[182u];   /* 0x7082e +0x0082e init size=0xb6 w3_2_init_bulk */
 extern uint16_t g_current_cursor_id;   /* 0x708e4 +0x008e4 init size=0x2 w3_2_init_bulk */
-extern uint8_t g_cursor_mask_data[87u];   /* 0x708e6 +0x008e6 init size=0x57 w6_1_interior_named */
+extern int32_t g_cursor_mask_data;   /* 0x708e6 +0x008e6 init size=0x4 w6_1_interior_named */
+extern uint8_t p_cursor_mask_records[83u];   /* 0x708ea +0x008ea init size=0x53 w6_1_interior_named PROVISIONAL why="the engine's 2D blit code address-takes 0x708ec (+0x10-stride cursor sprite/mask records) and the window carries the MASK.BIN asset filename; split from g_cursor_mask_data when a disassembly-verified G32 retype (0x2695b mov DWORD [0x708e6]) shrank the base to the cursor-scale dword" */
 extern uint8_t g_keymap_table[1493u];   /* 0x7093d +0x0093d init size=0x5d5 w3_3_reloc_carrying; RELOC-OWNED 37 slot(s) (0 data->data + 37 code->data) at +0x1,+0x6,+0xb,+0x10,+0x15,+0x1a,+0x1f,+0x24,+0x29,+0x2e,+0x33,+0x38,+0x3d,+0x42,+0x47,+0x4c,+0x51,+0x56,+0x5b,+0x60,+0x65,+0x6a,+0x6f,+0x74,+0x79,+0x7e,+0x83,+0x88,+0x8d,+0x92,+0x97,+0x9c,+0xa1,+0xa6,+0xab,+0xb0,+0xb5 — reloc-pass overwrites, initializer holds pre-reloc placeholder */
 extern uint8_t g_font_descriptor[758u];   /* 0x70f12 +0x00f12 init size=0x2f6 w1_text_font */
 extern uint16_t g_ui_slot_layout_table;   /* 0x71208 +0x01208 init size=0x2 w3_2_init_bulk */

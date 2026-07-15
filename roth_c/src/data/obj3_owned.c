@@ -275,14 +275,17 @@ uint8_t g_scancode_translate_table[182u] = {
 /* 0x708e4 (+0x008e4) scalar size=0x2 [G16 x4] w3_2_init_bulk; byte-exact initializer = pre-reloc template bytes from ROTH.EXE */
 uint16_t g_current_cursor_id = 0xff;
 
-/* 0x708e6 (+0x008e6) bytes size=0x57 [G8 x1, G32 x2] w6_1_interior_named; byte-exact initializer = pre-reloc template bytes from ROTH.EXE */
-uint8_t g_cursor_mask_data[87u] = {
-    0x20,0x00,0x00,0x00,0x00,0x00,0x05,0x0a,0x0f,0x15,0x15,0x0f,0x0a,0x05,0x00,0x01,
-    0x02,0x04,0x01,0x03,0x05,0x08,0x02,0x05,0x09,0x0c,0x04,0x08,0x0c,0x10,0x04,0x02,
-    0x01,0x00,0x08,0x05,0x03,0x01,0x0c,0x09,0x05,0x02,0x10,0x0c,0x08,0x04,0x04,0x08,
-    0x0c,0x10,0x02,0x05,0x09,0x0c,0x01,0x03,0x05,0x08,0x00,0x01,0x02,0x04,0x10,0x0c,
-    0x08,0x04,0x0c,0x09,0x05,0x02,0x08,0x05,0x03,0x01,0x04,0x02,0x01,0x00,0x4d,0x41,
-    0x53,0x4b,0x2e,0x42,0x49,0x4e,0x00,
+/* 0x708e6 (+0x008e6) scalar size=0x4 [G32 x3] w6_1_interior_named; byte-exact initializer = pre-reloc template bytes from ROTH.EXE */
+int32_t g_cursor_mask_data = 0x20;
+
+/* 0x708ea (+0x008ea) bytes size=0x53 [no G-macro sites] w6_1_interior_named; PROVISIONAL (rename-pass target) why: the engine's 2D blit code address-takes 0x708ec (+0x10-stride cursor sprite/mask records) and the window carries the MASK.BIN asset filename; split from g_cursor_mask_data when a disassembly-verified G32 retype (0x2695b mov DWORD [0x708e6]) shrank the base to the cursor-scale dword; byte-exact initializer = pre-reloc template bytes from ROTH.EXE */
+uint8_t p_cursor_mask_records[83u] = {
+    0x00,0x00,0x05,0x0a,0x0f,0x15,0x15,0x0f,0x0a,0x05,0x00,0x01,0x02,0x04,0x01,0x03,
+    0x05,0x08,0x02,0x05,0x09,0x0c,0x04,0x08,0x0c,0x10,0x04,0x02,0x01,0x00,0x08,0x05,
+    0x03,0x01,0x0c,0x09,0x05,0x02,0x10,0x0c,0x08,0x04,0x04,0x08,0x0c,0x10,0x02,0x05,
+    0x09,0x0c,0x01,0x03,0x05,0x08,0x00,0x01,0x02,0x04,0x10,0x0c,0x08,0x04,0x0c,0x09,
+    0x05,0x02,0x08,0x05,0x03,0x01,0x04,0x02,0x01,0x00,0x4d,0x41,0x53,0x4b,0x2e,0x42,
+    0x49,0x4e,0x00,
 };
 
 /* 0x7093d (+0x0093d) bytes size=0x5d5 [no G-macro sites] w3_3_reloc_carrying; byte-exact initializer = pre-reloc template bytes from ROTH.EXE; RELOC-OWNED 37 slot(s) (0 data->data + 37 code->data) at +0x1,+0x6,+0xb,+0x10,+0x15,+0x1a,+0x1f,+0x24,+0x29,+0x2e,+0x33,+0x38,+0x3d,+0x42,+0x47,+0x4c,+0x51,+0x56,+0x5b,+0x60,+0x65,+0x6a,+0x6f,+0x74,+0x79,+0x7e,+0x83,+0x88,+0x8d,+0x92,+0x97,+0x9c,+0xa1,+0xa6,+0xab,+0xb0,+0xb5 — reloc-pass overwrites, initializer holds pre-reloc placeholder */
@@ -2285,7 +2288,7 @@ int32_t g_inventory_inspect_request;
 /* 0x80b42 (+0x10b42) array size=0x2e [G16 x2, GADDR x2] w4b_dialogue_ui; zero-init (C .bss) — obj3 zero-fill region */
 uint16_t g_inspect_popup_layout[23];
 
-/* 0x80b70 (+0x10b70) bytes size=0x54 [G16 x1, G32 x12] w4b_dialogue_ui; zero-init (C .bss) — obj3 zero-fill region */
+/* 0x80b70 (+0x10b70) bytes size=0x54 [G16 x1, G32 x6] w4b_dialogue_ui; zero-init (C .bss) — obj3 zero-fill region */
 uint8_t g_inventory_active_tab[84u];
 
 /* 0x80c2c (+0x10c2c) scalar size=0x4 [G32 x20, GADDR x1] w4b_weapon_combat; zero-init (C .bss) — obj3 zero-fill region */
@@ -2729,7 +2732,7 @@ uint8_t g_screen_pitch[8u];
 /* 0x854a0 (+0x154a0) bytes size=0x8 [G16 x1, G32 x32] w4b_game_core; zero-init (C .bss) — obj3 zero-fill region */
 uint8_t g_screen_height[8u];
 
-/* 0x854a8 (+0x154a8) array size=0x780 [G32 x4, GADDR x2] w4c_lifted; zero-init (C .bss) — obj3 zero-fill region */
+/* 0x854a8 (+0x154a8) array size=0x780 [G32 x4, GADDR x3] w4c_lifted; zero-init (C .bss) — obj3 zero-fill region */
 int32_t g_scanline_dest_offset_table[480];
 
 /* 0x85c28 (+0x15c28) scalar size=0x4 [G32 x7] w2_entity_ai; zero-init (C .bss) — obj3 zero-fill region */
@@ -3218,7 +3221,7 @@ uint16_t g_floorceil_vertex_count;
 /* 0x8cd0c (+0x1cd0c) bytes size=0x3c30 [GADDR x1] w4c_lifted; zero-init (C .bss) — obj3 zero-fill region */
 uint8_t g_floorceil_span_records[15408u];
 
-/* 0x9093c (+0x2093c) bytes size=0xc [G8 x16, G16 x63] w4c_lifted; zero-init (C .bss) — obj3 zero-fill region */
+/* 0x9093c (+0x2093c) bytes size=0xc [G8 x17, G16 x63] w4c_lifted; zero-init (C .bss) — obj3 zero-fill region */
 uint8_t g_world_surface_draw_flags[12u];
 
 /* 0x90948 (+0x20948) scalar size=0x2 [G16 x4] w4c_lifted; zero-init (C .bss) — obj3 zero-fill region */
@@ -3614,7 +3617,8 @@ const obj3_owned_t obj3_owned_tab[] = {
   { "g_held_key_move_table", 0x7f1u, 0x3du, (const void *)g_held_key_move_table, obj3_reloc_slots_g_held_key_move_table, 12u },
   { "g_scancode_translate_table", 0x82eu, 0xb6u, (const void *)g_scancode_translate_table, 0, 0u },
   { "g_current_cursor_id", 0x8e4u, 0x2u, (const void *)&g_current_cursor_id, 0, 0u },
-  { "g_cursor_mask_data", 0x8e6u, 0x57u, (const void *)g_cursor_mask_data, 0, 0u },
+  { "g_cursor_mask_data", 0x8e6u, 0x4u, (const void *)&g_cursor_mask_data, 0, 0u },
+  { "p_cursor_mask_records", 0x8eau, 0x53u, (const void *)p_cursor_mask_records, 0, 0u },
   { "g_keymap_table", 0x93du, 0x5d5u, (const void *)g_keymap_table, obj3_reloc_slots_g_keymap_table, 37u },
   { "g_font_descriptor", 0xf12u, 0x2f6u, (const void *)g_font_descriptor, 0, 0u },
   { "g_ui_slot_layout_table", 0x1208u, 0x2u, (const void *)&g_ui_slot_layout_table, 0, 0u },
@@ -4207,7 +4211,7 @@ const obj3_owned_t obj3_owned_tab[] = {
   { "g_sos_drivers_installed", 0x23194u, 0x4u, (const void *)&g_sos_drivers_installed, 0, 0u },
   { "g_sos_voice_alloc_mode", 0x251ccu, 0x4u, (const void *)&g_sos_voice_alloc_mode, 0, 0u },
 };
-const unsigned obj3_owned_count = 624u;
+const unsigned obj3_owned_count = 625u;
 
 /* masked owned-storage comparator (used by datac-probe + CHK_OWNED_RELOC):
  * every byte outside the reloc slots must match; slot bytes legitimately

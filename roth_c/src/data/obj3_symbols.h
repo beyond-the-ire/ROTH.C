@@ -39,7 +39,7 @@ extern const unsigned obj3_nsyms;
  * offset with its recorded size, in-bounds, table sorted. returns #failures. */
 int obj3_symbols_selfcheck(void);
 
-/* ===== INITIALIZED region: canon [0x70000,0x763b0) — 101 named globals ===== */
+/* ===== INITIALIZED region: canon [0x70000,0x763b0) — 102 named globals ===== */
 /* 0x70000 (+0x00000) bytes size=0x10 extent=0x10 [no G-macro sites] src=EN; no-typed-access; UNSIZED-EXTENT init: 01 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 */
 /* g_crt_data_seg_prefix: OWNED (w6_1_crt_startup_strings) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x70010 (+0x00010) bytes size=0x17 extent=0x17 [GADDR x1] src=EN; no-typed-access (addr-taken); UNSIZED-EXTENT init: 40 72 6f 74 68 2e 72 65 73 00 20 3a 20 46 61 69 ... */
@@ -104,8 +104,10 @@ int obj3_symbols_selfcheck(void);
 /* g_scancode_translate_table: OWNED (w3_2_init_bulk) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x708e4 (+0x008e4) scalar size=0x2 extent=0x2 [G16 x4] src=EN init=0xff */
 /* g_current_cursor_id: OWNED (w3_2_init_bulk) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
-/* 0x708e6 (+0x008e6) bytes size=0x57 extent=0x57 [G8 x1, G32 x2] src=EN; mixed-width G8/G32; UNSIZED-EXTENT init: 20 00 00 00 00 00 05 0a 0f 15 15 0f 0a 05 00 01 ... */
+/* 0x708e6 (+0x008e6) scalar size=0x4 extent=0x57 [G32 x3] src=EN init=0x20 */
 /* g_cursor_mask_data: OWNED (w6_1_interior_named) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
+/* 0x708ea (+0x008ea) bytes size=0x53 extent=0x53 [no G-macro sites] src=provisional; PROVISIONAL init: 00 00 05 0a 0f 15 15 0f 0a 05 00 01 02 04 01 03 ... */
+/* p_cursor_mask_records: PROVISIONAL OWNED (w6_1_interior_named) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. why: the engine's 2D blit code address-takes 0x708ec (+0x10-stride cursor sprite/mask records) and the window carries the MASK.BIN asset filename; split from g_cursor_mask_data when a disassembly-verified G32 retype (0x2695b mov DWORD [0x708e6]) shrank the base to the cursor-scale dword */
 /* 0x7093d (+0x0093d) bytes size=0x5d5 extent=0x5d5 [no G-macro sites] src=EN; no-typed-access; UNSIZED-EXTENT init: 3a ed 7f 01 00 3b d8 75 01 00 3c 9b f8 01 00 3d ... */
 /* g_keymap_table: OWNED (w3_3_reloc_carrying) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x70f12 (+0x00f12) bytes size=0x2f6 extent=0x2f6 [GADDR x1] src=EN; no-typed-access (addr-taken); UNSIZED-EXTENT init: ff 00 0b 00 03 00 00 00 00 00 00 00 00 00 00 00 ... */
@@ -438,7 +440,7 @@ int obj3_symbols_selfcheck(void);
 /* g_inventory_inspect_request: OWNED (w4b_dialogue_ui) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x80b42 (+0x10b42) array size=0x2e extent=0x2e [G16 x2, GADDR x2] src=EN */
 /* g_inspect_popup_layout: OWNED (w4b_dialogue_ui) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
-/* 0x80b70 (+0x10b70) bytes size=0x54 extent=0x54 [G16 x1, G32 x12] src=EN; mixed-width G16/G32; UNSIZED-EXTENT */
+/* 0x80b70 (+0x10b70) bytes size=0x54 extent=0x54 [G16 x1, G32 x6] src=EN; mixed-width G16/G32; UNSIZED-EXTENT */
 /* g_inventory_active_tab: OWNED (w4b_dialogue_ui) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x80bc4 (+0x10bc4) bytes size=0x68 extent=0x68 [no G-macro sites] src=EN; no-typed-access; UNSIZED-EXTENT */
 #define g_inventory_hotspot_list (*(volatile uint8_t (*)[104u])(void *)OBJ3_AT(0x10bc4u))
@@ -758,7 +760,7 @@ int obj3_symbols_selfcheck(void);
 /* g_screen_pitch: OWNED (w1_text_font) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x854a0 (+0x154a0) bytes size=0x8 extent=0x8 [G16 x1, G32 x32] src=EN; mixed-width G16/G32; UNSIZED-EXTENT */
 /* g_screen_height: OWNED (w4b_game_core) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
-/* 0x854a8 (+0x154a8) array size=0x780 extent=0x780 [G32 x4, GADDR x2] src=EN */
+/* 0x854a8 (+0x154a8) array size=0x780 extent=0x780 [G32 x4, GADDR x3] src=EN */
 /* g_scanline_dest_offset_table: OWNED (w4c_lifted) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x85c28 (+0x15c28) scalar size=0x4 extent=0x8 [G32 x7] src=EN */
 /* g_object_buffer_free: OWNED (w2_entity_ai) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
@@ -1108,7 +1110,7 @@ int obj3_symbols_selfcheck(void);
 #define g_floorceil_vertex_records (*(volatile uint8_t (*)[966u])(void *)OBJ3_AT(0x1c946u))
 /* 0x8cd0c (+0x1cd0c) bytes size=0x3c30 extent=0x3c30 [GADDR x1] src=EN; no-typed-access (addr-taken); UNSIZED-EXTENT */
 /* g_floorceil_span_records: OWNED (w4c_lifted) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
-/* 0x9093c (+0x2093c) bytes size=0xc extent=0xc [G8 x16, G16 x63] src=EN; mixed-width G8/G16; UNSIZED-EXTENT */
+/* 0x9093c (+0x2093c) bytes size=0xc extent=0xc [G8 x17, G16 x63] src=EN; mixed-width G8/G16; UNSIZED-EXTENT */
 /* g_world_surface_draw_flags: OWNED (w4c_lifted) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
 /* 0x90948 (+0x20948) scalar size=0x2 extent=0x2 [G16 x4] src=EN */
 /* g_wall_proj_y0: OWNED (w4c_lifted) — real definition in obj3_owned.c, extern in obj3_owned.h; no alias. */
