@@ -23,9 +23,8 @@
 #include "roth_host.h"          /* OBJ_DELTA, STACK_TOP, LOGE */
 #include "engine.h"             /* regs_t, g_os_soft_int (the int33 seam we chain for on_frame_game) */
 #include "standalone_hooks.h"   /* host_soft_int (the real body g_os_soft_int points at) */
+#include "sys/sys.h"            /* per-OS seam: shared-object loading, directory enumeration, soname */
 
-#include <dlfcn.h>
-#include <dirent.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -155,28 +154,28 @@ static void load_one(const char *path)
         LOGE("[plugins] too many plugins (max %d) — %s skipped\n", PL_MAX, path);
         return;
     }
-    void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);   /* local scope: no symbol leakage (finding 8) */
+    void *h = sys_dlopen(path);              /* immediate binding, local scope: no symbol leakage (finding 8) */
     if (!h) {
-        LOGE("[plugins] dlopen %s failed: %s — rejected\n", path, dlerror());
+        LOGE("[plugins] dlopen %s failed: %s — rejected\n", path, sys_dlerror());
         if (g_opt_strict) exit(2);
         return;
     }
-    dlerror();
-    /* The single versioned export is authoritative; a mod.toml beside the .so is packaging metadata
-     * only and v1 ignores it entirely. */
+    sys_dlerror();
+    /* The single versioned export is authoritative; a mod.toml beside the shared object is packaging
+     * metadata only and v1 ignores it entirely. */
     union { void *p; const struct roth_plugin_info_v1 *(*fn)(void); } q;
-    q.p = dlsym(h, "roth_plugin_query_v1");
-    const char *err = dlerror();
+    q.p = sys_dlsym(h, "roth_plugin_query_v1");
+    const char *err = sys_dlerror();
     if (err || !q.p) {
         LOGE("[plugins] %s: no roth_plugin_query_v1 export (%s) — rejected\n",
              path, err ? err : "null");
-        dlclose(h);
+        sys_dlclose(h);
         if (g_opt_strict) exit(2);
         return;
     }
     const struct roth_plugin_info_v1 *info = q.fn();
     if (!validate(info, path)) {
-        dlclose(h);                          /* a rejected candidate was never live -> safe to close */
+        sys_dlclose(h);                      /* a rejected candidate was never live -> safe to close */
         if (g_opt_strict) exit(2);
         return;
     }
@@ -195,6 +194,28 @@ static int name_cmp(const void *a, const void *b)
     return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
 
+/* The bounded name list discover() collects from the mods/ directory before sorting it. */
+struct pl_namelist {
+    char (*names)[256];   /* backing storage for the copied names        */
+    const char **nameptr; /* pointers into names[], the qsort input       */
+    int nn;               /* count collected so far                        */
+};
+
+/* Collect one mods/ subdirectory name. Skips dot entries and stops once the fixed table is full,
+ * mirroring the original bounded read loop; the collected names are sorted lexicographically after. */
+static int collect_mod_name(const char *name, void *ud)
+{
+    struct pl_namelist *nl = ud;
+    if (nl->nn >= PL_MAX)                     /* table full -> stop the walk */
+        return 0;
+    if (name[0] == '.')                       /* skip ".", "..", dotfiles */
+        return 1;
+    snprintf(nl->names[nl->nn], sizeof nl->names[nl->nn], "%s", name);
+    nl->nameptr[nl->nn] = nl->names[nl->nn];
+    nl->nn++;
+    return 1;
+}
+
 static void discover(const char *game_dir)
 {
     if (g_discovered)
@@ -203,29 +224,20 @@ static void discover(const char *game_dir)
 
     char moddir[1024];
     snprintf(moddir, sizeof moddir, "%s/mods", game_dir ? game_dir : ".");
-    DIR *d = opendir(moddir);
-    if (!d) {
+
+    static char names[PL_MAX][256];
+    const char *nameptr[PL_MAX];
+    struct pl_namelist nl = { names, nameptr, 0 };
+    if (sys_enum_dir(moddir, collect_mod_name, &nl) != 0) {
         LOGE("[plugins] no mods directory at %s — no plugins loaded\n", moddir);
         return;
     }
-    static char names[PL_MAX][256];
-    const char *nameptr[PL_MAX];
-    int nn = 0;
-    struct dirent *e;
-    while ((e = readdir(d)) && nn < PL_MAX) {
-        if (e->d_name[0] == '.')             /* skip ".", "..", dotfiles */
-            continue;
-        snprintf(names[nn], sizeof names[nn], "%s", e->d_name);
-        nameptr[nn] = names[nn];
-        nn++;
-    }
-    closedir(d);
-    qsort(nameptr, (size_t)nn, sizeof nameptr[0], name_cmp);   /* deterministic load order */
+    qsort(nameptr, (size_t)nl.nn, sizeof nameptr[0], name_cmp);   /* deterministic load order */
 
-    for (int i = 0; i < nn; i++) {
+    for (int i = 0; i < nl.nn; i++) {
         char so[2048];
-        snprintf(so, sizeof so, "%s/%s/plugin.so", moddir, nameptr[i]);
-        if (access(so, R_OK) != 0)           /* a subdir without a plugin.so is not a plugin */
+        snprintf(so, sizeof so, "%s/%s/%s", moddir, nameptr[i], sys_plugin_soname());
+        if (access(so, R_OK) != 0)           /* a subdir without a plugin shared object is not a plugin */
             continue;
         load_one(so);
     }

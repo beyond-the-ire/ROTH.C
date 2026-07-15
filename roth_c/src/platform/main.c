@@ -30,8 +30,7 @@
  * ROTH_STANDALONE) never sees pthread/SDL — its link stays -lrt-only and behaviour-identical. */
 #include <pthread.h>
 #include <signal.h>
-#include <dirent.h>    /* M4: case-insensitive CONFIG.INI probe for the exe-dir game-dir default */
-#include <strings.h>   /* strcasecmp */
+#include "sys/sys.h"         /* per-OS seam: executable-directory + directory queries */
 #include "sdl/sdl_host.h"
 #include "plugin_loader.h"   /* task #103: the runtime plugin platform (imgfree only) */
 #endif
@@ -139,15 +138,7 @@ static int dir_has_config_ini(const char *dir)
     snprintf(p, sizeof p, "%s/CONFIG.INI", dir);
     if (access(p, F_OK) == 0)
         return 1;
-    DIR *d = opendir(dir);
-    if (!d)
-        return 0;
-    struct dirent *e;
-    int found = 0;
-    while ((e = readdir(d)))
-        if (!strcasecmp(e->d_name, "CONFIG.INI")) { found = 1; break; }
-    closedir(d);
-    return found;
+    return sys_dir_has(dir, "CONFIG.INI");
 }
 
 /* M4 zero-config (design §5): resolve g_exe_dir (readlink /proc/self/exe -> dirname; argv[0] fallback),
@@ -156,17 +147,7 @@ static int dir_has_config_ini(const char *dir)
  * beside the exe, fall back to the dev Steam path; if that's absent too, fail clearly naming both. */
 static void resolve_paths(const char *argv0, int game_dir_given)
 {
-    static char exedir[1024];
-    ssize_t n = readlink("/proc/self/exe", exedir, sizeof exedir - 1);
-    if (n > 0)
-        exedir[n] = 0;
-    else
-        snprintf(exedir, sizeof exedir, "%s", argv0 ? argv0 : ".");
-    char *slash = strrchr(exedir, '/');
-    if (slash)
-        *slash = 0;
-    else
-        strcpy(exedir, ".");
+    const char *exedir = sys_exe_dir(argv0);
     g_exe_dir = exedir;
 
     if (game_dir_given)

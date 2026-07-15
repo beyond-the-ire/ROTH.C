@@ -7,10 +7,10 @@
  */
 #include "roth_host.h"
 #include "shared_fb.h"
+#include "sys/sys.h"    /* per-OS seam: low (32-bit-addressable) allocation */
 
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <execinfo.h>   /* ROTH_FB_TRACE: backtrace the render-target base-set (mirror-buffer bug) */
 
 /* ROTH_FB_TRACE diagnostic (2026-07-09): the secondary/mirror render-target selector was seen
@@ -351,10 +351,9 @@ void dpmi_int31(cpu_t *c)
     }
     case 0x0501: { /* allocate linear memory BX:CX -> BX:CX addr, SI:DI handle */
         uint32_t size = ((R_EBX(c) & 0xffff) << 16) | (R_ECX(c) & 0xffff);
-        void *p = mmap(NULL, (size + 0xfff) & ~0xfffu, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+        void *p = sys_lowmem_alloc((size + 0xfff) & ~0xfffu);
         LOGT("dpmi 0501: alloc 0x%x -> %p\n", size, p);
-        if (p == MAP_FAILED) {
+        if (!p) {
             set_cf(c, 1);
             break;
         }

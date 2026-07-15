@@ -15,6 +15,8 @@
 #ifndef ROTH_SYS_H
 #define ROTH_SYS_H
 
+#include <stddef.h>   /* size_t */
+
 /* The portable per-tick body: runs once per timer fire, on the thread the tick
  * interrupts. It advances the frame clock, polls audio, drives the cursor, pumps
  * the cutscene decoder and drains the keyboard ring. It does no CPU
@@ -33,5 +35,52 @@ void sys_tick_set_period(unsigned period_us);
 
 /* Stop the tick (clean teardown). */
 void sys_tick_stop(void);
+
+/* ---- dynamic shared-object loading -------------------------------------------
+ * The plugin loader opens one shared library per mod, resolves its single
+ * versioned query export, and keeps the handle for the life of the process. The
+ * four calls below wrap the OS loader so the loader code stays OS-independent.
+ * sys_dlopen binds every symbol immediately and keeps the library's symbols
+ * private to this process image (no global-namespace leakage). sys_dlerror
+ * returns a human-readable description of the most recent loader failure, or NULL
+ * if there was none; it is cleared by reading it, so the loader clears it before
+ * a lookup and re-reads it after to tell "resolved to NULL" from "not found". */
+void       *sys_dlopen(const char *path);
+void       *sys_dlsym(void *handle, const char *symbol);
+void        sys_dlclose(void *handle);
+const char *sys_dlerror(void);
+
+/* The base filename of a plugin's shared object inside a mod folder ("plugin.so"
+ * or the platform's equivalent), so the discovery loop carries no per-OS name. */
+const char *sys_plugin_soname(void);
+
+/* Allocate `len` bytes of read/write, page-granular, anonymous memory whose
+ * address fits in 32 bits (some far-pointer consumers keep only the low 32 bits
+ * of an address). Returns NULL on failure. */
+void *sys_lowmem_alloc(size_t len);
+
+/* Change the protection of an executable code range to open a brief writable
+ * window around a self-modifying-code patch and then restore it. SYS_PROT_RWX
+ * makes the range writable-and-executable for the write; SYS_PROT_RX restores
+ * read-and-execute afterward (flushing the instruction cache where the platform
+ * requires it). Returns 0 on success, non-zero on failure. */
+enum sys_exec_prot { SYS_PROT_RWX, SYS_PROT_RX };
+int sys_protect_exec(void *addr, size_t len, enum sys_exec_prot prot);
+
+/* The directory containing the running executable (no trailing slash). Falls back
+ * to the directory of `argv0`, then to "." when neither is available. The returned
+ * string is owned by the seam and stays valid for the life of the process. */
+const char *sys_exe_dir(const char *argv0);
+
+/* Return non-zero if `dir` contains an entry whose name matches `name`
+ * case-insensitively; 0 if `dir` cannot be opened. */
+int sys_dir_has(const char *dir, const char *name);
+
+/* Enumerate the entries of `dir`, invoking cb(name, ud) with each entry's plain
+ * name (no path). Each caller applies its own filtering (for example skipping the
+ * "." and ".." entries). If cb returns 0 the walk stops early; a non-zero return
+ * continues it. Returns 0 on success (including an early stop), -1 if `dir` cannot
+ * be opened. */
+int sys_enum_dir(const char *dir, int (*cb)(const char *name, void *ud), void *ud);
 
 #endif /* ROTH_SYS_H */

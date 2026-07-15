@@ -13,6 +13,7 @@
 #include "shared_midi.h"
 #include "shared_fb.h"
 #include "g_names.h"   /* VA_<global> canon-VA constants for readable G-macro sites (generated) */
+#include "sys/sys.h"   /* per-OS seam: low (32-bit-addressable) allocation */
 #include <time.h>
 #include <sys/time.h>
 
@@ -1753,9 +1754,8 @@ static uint32_t g_svc_bufb_base;
  * dpmi.c's software cache. Returns the linear base (0 on failure) and *out_sel. */
 static uint32_t svc_alloc_seg(uint32_t size, uint16_t *out_sel)
 {
-    void *p = mmap(NULL, (size + 0xfffu) & ~0xfffu, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
-    if (p == MAP_FAILED)
+    void *p = sys_lowmem_alloc((size + 0xfffu) & ~0xfffu);
+    if (!p)
         return 0;
     uint32_t base = (uint32_t)(uintptr_t)p;
     int sel = ldt_alloc(base, size ? size - 1 : 0);

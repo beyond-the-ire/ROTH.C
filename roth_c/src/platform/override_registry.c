@@ -9,11 +9,11 @@
 #include "override_registry.h"
 #include "roth_sdk.h"      /* struct roth_registrar_v1 / roth_api_v1 / roth_register_override_fn */
 #include "roth_host.h"     /* LOGE */
+#include "sys/sys.h"       /* per-OS seam: executable-page protection for the patch window */
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
 
 #define PENDING_MAX 1024   /* total override registrations across all plugins */
@@ -97,11 +97,11 @@ static int patch_entry(uint8_t *entry, void *target)
     int32_t rel = (int32_t)((intptr_t)target - (intptr_t)(entry + 5));
     uintptr_t lo = (uintptr_t)entry & ~(uintptr_t)0xfff;
     uintptr_t hi = ((uintptr_t)entry + 5 + 0xfff) & ~(uintptr_t)0xfff;
-    if (mprotect((void *)lo, (size_t)(hi - lo), PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
+    if (sys_protect_exec((void *)lo, (size_t)(hi - lo), SYS_PROT_RWX) != 0)
         return -2;
     entry[0] = 0xE9;
     memcpy(entry + 1, &rel, 4);
-    mprotect((void *)lo, (size_t)(hi - lo), PROT_READ | PROT_EXEC);
+    sys_protect_exec((void *)lo, (size_t)(hi - lo), SYS_PROT_RX);
     return 0;
 }
 
@@ -110,10 +110,10 @@ static void unpatch_entry(uint8_t *entry)
 {
     uintptr_t lo = (uintptr_t)entry & ~(uintptr_t)0xfff;
     uintptr_t hi = ((uintptr_t)entry + 5 + 0xfff) & ~(uintptr_t)0xfff;
-    if (mprotect((void *)lo, (size_t)(hi - lo), PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
+    if (sys_protect_exec((void *)lo, (size_t)(hi - lo), SYS_PROT_RWX) != 0)
         return;
     memset(entry, 0x90, 5);
-    mprotect((void *)lo, (size_t)(hi - lo), PROT_READ | PROT_EXEC);
+    sys_protect_exec((void *)lo, (size_t)(hi - lo), SYS_PROT_RX);
 }
 
 static void unwind_all(void)

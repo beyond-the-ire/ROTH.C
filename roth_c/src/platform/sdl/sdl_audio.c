@@ -43,8 +43,8 @@
 #include "../shared_audio.h"
 #include "../shared_midi.h"
 #include "../viewer/tsf.h"   /* NO TSF_IMPLEMENTATION here: extern API prototypes only (impl in sdl_tsf.c) */
+#include "../sys/sys.h"      /* per-OS seam: directory enumeration for the system-SoundFont scan */
 
-#include <dirent.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -76,6 +76,25 @@ extern const char *g_sf2_path;
  * beside the executable (the product case), (4) the legacy dev default, (5) the Linux system default
  * /usr/share/soundfonts/default.sf2, (6) the first *.sf2 in /usr/share/sounds/sf2/. Returns the chosen
  * path (into `buf` for computed cases, or a literal), or NULL if none — caller goes MIDI-silent. */
+/* Collector for the system-SoundFont scan: keep the first *.sf2 entry (case-insensitive). */
+struct sf2_pick_ctx {
+    char       *buf;
+    size_t      bufsz;
+    const char *pick;
+};
+
+static int sf2_pick_first(const char *name, void *ud)
+{
+    struct sf2_pick_ctx *c = ud;
+    size_t l = strlen(name);
+    if (l > 4 && !strcasecmp(name + l - 4, ".sf2")) {
+        snprintf(c->buf, c->bufsz, "/usr/share/sounds/sf2/%s", name);
+        c->pick = c->buf;
+        return 0;                                                   /* first match wins — stop */
+    }
+    return 1;
+}
+
 static const char *resolve_sf2(char *buf, size_t bufsz)
 {
     if (g_sf2_path && *g_sf2_path)
@@ -92,22 +111,10 @@ static const char *resolve_sf2(char *buf, size_t bufsz)
         return "recomp/viewer/gm.sf2";
     if (access("/usr/share/soundfonts/default.sf2", R_OK) == 0)     /* 5. system default */
         return "/usr/share/soundfonts/default.sf2";
-    DIR *d = opendir("/usr/share/sounds/sf2");                      /* 6. first *.sf2 in the sf2 dir */
-    if (d) {
-        struct dirent *e;
-        const char *pick = NULL;
-        while ((e = readdir(d))) {
-            size_t l = strlen(e->d_name);
-            if (l > 4 && !strcasecmp(e->d_name + l - 4, ".sf2")) {
-                snprintf(buf, bufsz, "/usr/share/sounds/sf2/%s", e->d_name);
-                pick = buf;
-                break;
-            }
-        }
-        closedir(d);
-        if (pick)
-            return pick;
-    }
+    struct sf2_pick_ctx c = { buf, bufsz, NULL };                   /* 6. first *.sf2 in the sf2 dir */
+    sys_enum_dir("/usr/share/sounds/sf2", sf2_pick_first, &c);
+    if (c.pick)
+        return c.pick;
     return NULL;                                                    /* 7. none found */
 }
 
