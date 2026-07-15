@@ -1390,42 +1390,43 @@ uint32_t try_interrupt_dialogue_voice(void)
  *   0x95804/0x95834/0x95864(+s*0x2fa) note tables                 0x72908 +s*4 timer handle
  *   0x920f0 +d*4 installed device ids · 0x7377c signature string · 0x741fc handle->seq byte map */
 
-/* far-pointer access via a real segment load (what the original's lgs/gs: does) */
+/* Far-pointer access: the original reads/writes these driver-side sequencer tables through
+ * gs:-prefixed far pointers (a real %gs segment load per access). Here the selector's linear
+ * base is resolved through the host selector-base hook instead of loading the selector into a
+ * hardware segment register — a hardware segment load is not portable: modern hosts have no LDT
+ * to hold a game selector (under Win32/WOW64 such a load faults). The behavior is identical, the
+ * access lands at base(sel) + offset, the exact linear address the segment load would produce.
+ * Volatile so these table accesses are neither cached, elided, nor reordered (the far access this
+ * replaces carried a "memory" clobber for the same reason). */
 static inline uint8_t au_gsr8(uint16_t sel, uint32_t off)
 {
-    uint8_t v;
-    __asm__ volatile("pushl %%gs; movw %w1, %%gs; movb %%gs:(%2), %b0; popl %%gs"
-                     : "=q"(v) : "r"((uint32_t)sel), "r"(off) : "memory");
-    return v;
+    return *(const volatile uint8_t *)(uintptr_t)
+        ((g_os_sel_base ? g_os_sel_base(sel) : 0) + off);
 }
 static inline uint16_t au_gsr16(uint16_t sel, uint32_t off)
 {
-    uint16_t v;
-    __asm__ volatile("pushl %%gs; movw %w1, %%gs; movw %%gs:(%2), %w0; popl %%gs"
-                     : "=r"(v) : "r"((uint32_t)sel), "r"(off) : "memory");
-    return v;
+    return *(const volatile uint16_t *)(uintptr_t)
+        ((g_os_sel_base ? g_os_sel_base(sel) : 0) + off);
 }
 static inline uint32_t au_gsr32(uint16_t sel, uint32_t off)
 {
-    uint32_t v;
-    __asm__ volatile("pushl %%gs; movw %w1, %%gs; movl %%gs:(%2), %0; popl %%gs"
-                     : "=r"(v) : "r"((uint32_t)sel), "r"(off) : "memory");
-    return v;
+    return *(const volatile uint32_t *)(uintptr_t)
+        ((g_os_sel_base ? g_os_sel_base(sel) : 0) + off);
 }
 static inline void au_gsw8(uint16_t sel, uint32_t off, uint8_t v)
 {
-    __asm__ volatile("pushl %%gs; movw %w0, %%gs; movb %b2, %%gs:(%1); popl %%gs"
-                     : : "r"((uint32_t)sel), "r"(off), "q"(v) : "memory");
+    *(volatile uint8_t *)(uintptr_t)
+        ((g_os_sel_base ? g_os_sel_base(sel) : 0) + off) = v;
 }
 static inline void au_gsw16(uint16_t sel, uint32_t off, uint16_t v)
 {
-    __asm__ volatile("pushl %%gs; movw %w0, %%gs; movw %w2, %%gs:(%1); popl %%gs"
-                     : : "r"((uint32_t)sel), "r"(off), "r"(v) : "memory");
+    *(volatile uint16_t *)(uintptr_t)
+        ((g_os_sel_base ? g_os_sel_base(sel) : 0) + off) = v;
 }
 static inline void au_gsw32(uint16_t sel, uint32_t off, uint32_t v)
 {
-    __asm__ volatile("pushl %%gs; movw %w0, %%gs; movl %2, %%gs:(%1); popl %%gs"
-                     : : "r"((uint32_t)sel), "r"(off), "r"(v) : "memory");
+    *(volatile uint32_t *)(uintptr_t)
+        ((g_os_sel_base ? g_os_sel_base(sel) : 0) + off) = v;
 }
 
 /* (au_bridge_stk retired: the SOS timer/dispatch/open/driver-slot entries that took
