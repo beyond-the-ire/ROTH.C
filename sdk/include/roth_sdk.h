@@ -40,8 +40,12 @@ extern "C" {
 #  define ROTH_SDK_EXPORT
 #endif
 /* Plugins mark their single versioned query export with ROTH_PLUGIN_EXPORT so the host
-   dlsym resolves it regardless of -fvisibility=hidden. */
-#if defined(__GNUC__) || defined(__clang__)
+   dlsym/GetProcAddress resolves it regardless of -fvisibility=hidden. On Windows the symbol
+   must land in the PE export table, so __declspec(dllexport) leads (MinGW and MSVC both honor
+   it; MinGW also defines __GNUC__, so the _WIN32 arm must come first). */
+#if defined(_WIN32)
+#  define ROTH_PLUGIN_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
 #  define ROTH_PLUGIN_EXPORT __attribute__((visibility("default")))
 #else
 #  define ROTH_PLUGIN_EXPORT

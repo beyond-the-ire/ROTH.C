@@ -34,7 +34,11 @@ ifeq ($(CROSS),mingw)
   BUILDTAG := -mingw
   # 32-bit is native to this toolchain: NO -m32. PE relocates via base relocs, so -fno-pie/-no-pie
   # are ELF-only and dropped. _GNU_SOURCE kept for parity (harmless on mingw; feature-test only).
-  CFLAGS   := -O1 -g -Wall -Wextra -D_GNU_SOURCE -fno-stack-protector
+  # -include src/platform/mingw_compat.h: force a compile prelude ahead of every unit on this axis.
+  # It renames the engine's own stricmp (int32_t(const uint8_t*,const uint8_t*)) away from the
+  # MinGW CRT's deprecated stricmp oldname (int(const char*,const char*)); glibc has no such alias,
+  # so the native build never needs it. See that header for the include-ordering rationale.
+  CFLAGS   := -O1 -g -Wall -Wextra -D_GNU_SOURCE -fno-stack-protector -include src/platform/mingw_compat.h
   LDFLAGS  := -Wl,--image-base,0x10000000 -Wl,--disable-dynamicbase -m$(WIN_SUBSYSTEM)
   SDL3_DIR := third_party/sdl3-win32
   NM       := $(XPFX)nm
