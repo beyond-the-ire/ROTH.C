@@ -36,6 +36,26 @@ void sys_tick_set_period(unsigned period_us);
 /* Stop the tick (clean teardown). */
 void sys_tick_stop(void);
 
+/* ---- the game thread ---------------------------------------------------------
+ * The game runs on its own thread while the main thread owns the window/present
+ * loop. The tick preempts the game thread cooperatively, exactly as the original
+ * timer interrupt preempted the single-threaded game, so the game thread is the
+ * only one the tick ever touches — no new races on the tick-shared globals.
+ *
+ * sys_spawn_game_thread starts `fn(arg)` on a fresh thread with a stack of at
+ * least `stack_bytes`, and arranges that the tick machinery can name and preempt
+ * exactly this thread (and no other). It returns 0 on success, non-zero on
+ * failure (in which case no thread was created and the caller runs `fn` itself).
+ * sys_join_game_thread blocks until that thread returns. */
+int  sys_spawn_game_thread(void *(*fn)(void *), void *arg, size_t stack_bytes);
+void sys_join_game_thread(void);
+
+/* Called once at the very top of the game thread, before it enters the game.
+ * Where the tick is delivered as an asynchronous per-thread event this arms that
+ * delivery for this thread and captures the thread's context the tick needs;
+ * where the tick is produced by other means it does nothing. */
+void sys_game_thread_enter(void);
+
 /* ---- dynamic shared-object loading -------------------------------------------
  * The plugin loader opens one shared library per mod, resolves its single
  * versioned query export, and keeps the handle for the life of the process. The

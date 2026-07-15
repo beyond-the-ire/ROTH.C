@@ -196,21 +196,11 @@ static void resolve_paths(const char *argv0, int game_dir_given)
 static void *game_main(void *arg)
 {
     (void)arg;
-#ifndef _WIN32
-    sigset_t s;
-    sigemptyset(&s);
-    sigaddset(&s, SIGALRM);
-    sigaddset(&s, SIGTERM);
-    sigaddset(&s, SIGUSR1);
-    pthread_sigmask(SIG_UNBLOCK, &s, NULL);
-    /* standalone runs FLAT (no game LDT selectors loaded), so fs/gs during game execution are this
-     * thread's glibc TLS. The SIGALRM/SIGTERM handlers swap fs/gs to g_host_fs/g_host_gs — which
-     * must therefore be THIS thread's TLS (making the swap a true no-op), NOT main()'s TLS, or libc
-     * called from the handler would read the wrong thread's TLS. Re-capture them on the game thread.
-     * None of this applies where the tick is not signal-delivered and the thread selectors stay put. */
-    __asm__ volatile("mov %%fs, %0" : "=r"(g_host_fs));
-    __asm__ volatile("mov %%gs, %0" : "=r"(g_host_gs));
-#endif
+    /* Per-OS thread entry: where the tick is a per-thread async signal this unblocks
+     * it here (so it lands on this thread only) and recaptures this thread's TLS
+     * selectors for the handler swap; where the tick is produced otherwise it is a
+     * no-op. See the seam's sys_game_thread_enter. */
+    sys_game_thread_enter();
     roth_boot();
     LOGE("game_main: roth_boot returned — game exited (code %d)\n", g_exit_code);
     sfx_trace_exit_dump();   /* SFX-dropout trace: windowed clean-quit flush (game thread, quiesced) */
@@ -555,6 +545,12 @@ int main(int argc, char **argv)
      * /dev/shm/roth_fb framebuffer when headless (always) or ROTH_SHM=1 (both-mode under a window). */
     int want_window = !g_headless || g_sdl_flag;   /* default, --windowed, --sdl, or --headless --sdl */
     int want_shm    = g_headless  || g_want_shm;   /* --headless always; ROTH_SHM adds it to a window */
+#ifdef _WIN32
+    /* The no-window shared-memory publish path is a POSIX-only facility (it exists for an
+     * out-of-process viewer). This platform always runs the in-process window, so the headless
+     * branch below — which would leave the framebuffer unbacked here — is never taken. */
+    want_window = 1;
+#endif
 
     if (!want_window) {
         /* --headless / ROTH_HEADLESS: byte-for-byte today's default — the game runs on the main
@@ -581,6 +577,14 @@ int main(int argc, char **argv)
      * and MIDI rings follow the SAME decision (audio_select_backing, read by audio_init() on the game
      * thread): private in-process rings for the windowed default, named shm objects when publishing
      * for an external viewer. */
+#ifdef _WIN32
+    /* No shared-memory publish path on this platform: an out-of-process viewer is a POSIX-only
+     * facility. The framebuffer, the PCM ring and the MIDI ring are always the private in-process
+     * backing the window reads directly. */
+    (void)want_shm;
+    mem_setup();
+    audio_select_backing(1);
+#else
     if (want_shm) {
         shm_setup();              /* /dev/shm/roth_fb — window + roth-inject/viewer attach ("both") */
         audio_select_backing(0);  /* /roth_audio + /roth_midi named objects, for the viewer */
@@ -588,32 +592,15 @@ int main(int argc, char **argv)
         mem_setup();              /* private in-process framebuffer — windowed, no /dev/shm file */
         audio_select_backing(1);  /* private in-process audio/MIDI rings — windowed default */
     }
-
-    /* Block the game-thread signals on main so ITIMER_REAL / SIGTERM / SIGUSR1 are delivered to the
-     * game thread (the only one that unblocks them). The child inherits this mask at creation. SDL
-     * then owns a signal-quiet main thread (the SDL video subsystem must run on the thread that
-     * called SDL_Init). */
-#ifndef _WIN32
-    sigset_t block, oldmask;
-    sigemptyset(&block);
-    sigaddset(&block, SIGALRM);
-    sigaddset(&block, SIGTERM);
-    sigaddset(&block, SIGUSR1);
-    pthread_sigmask(SIG_BLOCK, &block, &oldmask);
 #endif
 
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, 64 * 1024 * 1024);  /* generous: the game ran on the ~8 MB
-                                                          * main stack; give the child room to spare */
-    pthread_t game_tid;
-    int perr = pthread_create(&game_tid, &attr, game_main, NULL);
-    pthread_attr_destroy(&attr);
-    if (perr != 0) {
-        LOGE("pthread_create(game) failed (%d) — falling back to headless main-thread boot\n", perr);
-#ifndef _WIN32
-        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
-#endif
+    /* Start the game on its own thread; the main thread runs SDL's present/event loop. The seam
+     * makes the game thread the sole recipient of the periodic tick (and, where the tick is a
+     * per-thread signal, blocks it on this thread first so SDL owns a tick-quiet main thread — the
+     * SDL video subsystem must run on the thread that called SDL_Init). A generous stack: the game
+     * ran on the original's ~8 MB main stack; give the child room to spare. */
+    if (sys_spawn_game_thread(game_main, NULL, 64u * 1024 * 1024) != 0) {
+        LOGE("game-thread spawn failed — falling back to headless main-thread boot\n");
         roth_boot();
         sfx_trace_exit_dump();   /* SFX-dropout trace: fallback headless clean-quit flush */
         LOGE("game exited with code %d\n", g_exit_code);
@@ -627,7 +614,7 @@ int main(int argc, char **argv)
 
     if (g_shm)
         g_shm->quit = 1;   /* belt-and-suspenders: ask the game thread to exit if it hasn't */
-    pthread_join(game_tid, NULL);
+    sys_join_game_thread();
     LOGE("game exited with code %d\n", g_exit_code);
     return g_exit_code;
 #else

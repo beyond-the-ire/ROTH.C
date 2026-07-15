@@ -17,35 +17,255 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ---- periodic tick (not yet implemented on this platform) ---------------------
- * The tick drives the whole game clock; until the real timer mechanism lands the
- * arming calls announce themselves loudly (once) and return, so the rest of the
- * boot can be exercised without a running clock. */
-static void tick_not_yet(const char *what)
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+/* ---- the game thread ----------------------------------------------------------
+ * The game runs on a thread created here with CreateThread so we own a full-access
+ * HANDLE for it: the periodic tick below must suspend exactly this thread, read and
+ * rewrite its register context, and resume it. No other thread is ever a suspend
+ * target — the structural mirror of "the tick is delivered to the game thread
+ * only". The thread's stack bounds are captured (on the thread itself) so the tick
+ * can sanity-check a candidate stack pointer before touching the stack. */
+static HANDLE    g_game_thread;         /* full-access handle, published before the timer arms */
+static size_t    g_game_stack_reserve;  /* the stack reservation, for the bounds computation */
+static uintptr_t g_stack_lo, g_stack_hi;/* game-thread stack window [lo, hi) */
+
+/* Adapter: CreateThread's entry is DWORD WINAPI(void*); the portable game entry is
+ * void*(void*). The single game thread is started once, so a pair of file statics
+ * carries its function and argument across. */
+static void *(*g_game_fn)(void *);
+static void  *g_game_arg;
+
+static DWORD WINAPI game_thread_entry(LPVOID unused)
 {
-    static int announced;
-    if (!announced) {
-        announced = 1;
-        LOGE("periodic tick: %s is not yet implemented on this platform — "
-             "the game clock will not advance\n", what);
+    (void)unused;
+    g_game_fn(g_game_arg);
+    return 0;
+}
+
+int sys_spawn_game_thread(void *(*fn)(void *), void *arg, size_t stack_bytes)
+{
+    g_game_fn  = fn;
+    g_game_arg = arg;
+    g_game_stack_reserve = stack_bytes;
+    /* STACK_SIZE_PARAM_IS_A_RESERVATION: stack_bytes is the RESERVE (matching the
+     * large reservation the thread is given elsewhere); the OS commits on demand. */
+    DWORD tid;
+    g_game_thread = CreateThread(NULL, (SIZE_T)stack_bytes, game_thread_entry, NULL,
+                                 STACK_SIZE_PARAM_IS_A_RESERVATION, &tid);
+    if (!g_game_thread) {
+        LOGE("CreateThread(game) failed: %lu\n", (unsigned long)GetLastError());
+        return -1;
     }
+    return 0;
+}
+
+void sys_join_game_thread(void)
+{
+    if (g_game_thread)
+        WaitForSingleObject(g_game_thread, INFINITE);
+}
+
+void sys_game_thread_enter(void)
+{
+    /* Capture this thread's stack window from its thread-information block: the
+     * base (fs:[4]) is the fixed high end; pair it with the reservation for the low
+     * bound. No signal mask or selector work — the tick arrives by context-hijack
+     * with the thread-information block already correct. */
+    uint32_t stack_base;
+    __asm__ volatile("movl %%fs:0x4, %0" : "=r"(stack_base));  /* NT_TIB.StackBase */
+    g_stack_hi = (uintptr_t)stack_base;
+    g_stack_lo = (stack_base > g_game_stack_reserve)
+                     ? (uintptr_t)stack_base - g_game_stack_reserve : 0;
+}
+
+/* ---- the tick trampoline ------------------------------------------------------
+ * The game thread is redirected into this on each accepted tick. The compiler does
+ * not support a naked function on this target, so it is a free-standing assembly
+ * symbol. On entry Eip is here and Esp points at the pushed return address (the
+ * interrupted Eip). Because the hijack interrupts a mid-stream instruction, the
+ * interrupted code must see EFLAGS, every GPR and the full x87/SSE state intact on
+ * return — the C compiler only preserves callee-saved registers across a call — so
+ * this saves and restores all of them around the shared tick body, then returns to
+ * the interrupted instruction. The x87/SSE save area is aligned to 16 bytes for
+ * fxsave. */
+static volatile LONG g_in_tramp;   /* set by the timer thread on hijack; cleared by the body below */
+
+void roth_win_tramp_body(void);
+void roth_win_tramp_body(void)
+{
+    roth_tick_isr();
+    g_in_tramp = 0;                /* re-open hijacking (a fire during the epilogue is transparent) */
+}
+
+extern void tick_trampoline(void);
+__asm__(
+    ".text\n"
+    ".p2align 4\n"
+    ".globl _tick_trampoline\n"
+    "_tick_trampoline:\n\t"
+        "pushfl\n\t"                 /* save EFLAGS */
+        "pushal\n\t"                 /* save EAX..EDI */
+        "movl %esp, %ebp\n\t"        /* remember the post-pushal esp (popal restores ebp) */
+        "subl $512, %esp\n\t"
+        "andl $-16, %esp\n\t"        /* 16-byte-align the 512-byte fxsave area */
+        "fxsave (%esp)\n\t"          /* save x87 + SSE (control/status words, MXCSR, register file) */
+        "call _roth_win_tramp_body\n\t"
+        "fxrstor (%esp)\n\t"
+        "movl %ebp, %esp\n\t"        /* undo the align + reservation */
+        "popal\n\t"                  /* restore EAX..EDI (including EBP) */
+        "popfl\n\t"                  /* restore EFLAGS */
+        "ret\n"                      /* pop the pushed original Eip -> resume the interrupted instruction */
+);
+
+/* ---- periodic tick ------------------------------------------------------------
+ * A dedicated high-resolution waitable-timer thread wakes at the tick period and,
+ * when the game thread is at a safe point, redirects it through the trampoline to
+ * run the shared per-tick body ON the game thread. This mirrors the original timer
+ * interrupt: a periodic, single-threaded preemption of the game.
+ *
+ * The safe-point test (below) hijacks ONLY when the interrupted instruction is in
+ * our own image, the stack pointer is a plausible game-stack address with headroom,
+ * and no previous trampoline is still running; otherwise the tick is deferred to the
+ * next fire (the game clock tolerates the occasional skipped tick). The "in our own
+ * image" bound is PRECOMPUTED once at arm time — the per-fire path calls no
+ * potentially-loader-locking API, because the suspended game thread may itself hold
+ * the loader lock. */
+static uintptr_t g_image_lo, g_image_hi;   /* [lo, hi) of our own mapped image, precomputed */
+static HANDLE    g_timer;                  /* the waitable timer */
+static HANDLE    g_timer_stop;             /* manual-reset event: ends the timer thread */
+static HANDLE    g_timer_thread;
+static LONG      g_period_us = 14222;
+
+static void compute_image_bounds(void)
+{
+    /* One-time, at arm: the exe's own mapped range [base, base + SizeOfImage). Reads
+     * only the already-mapped PE headers; taken ONCE here, never in the per-fire path. */
+    HMODULE base = GetModuleHandleA(NULL);
+    if (!base) { g_image_lo = 0; g_image_hi = 0; return; }
+    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)base;
+    const IMAGE_NT_HEADERS *nt  =
+        (const IMAGE_NT_HEADERS *)((const char *)base + dos->e_lfanew);
+    g_image_lo = (uintptr_t)base;
+    g_image_hi = (uintptr_t)base + nt->OptionalHeader.SizeOfImage;
+}
+
+/* The safe-point test. All checks are on values already read into `ctx`, plus the
+ * precomputed image/stack bounds and the reentrancy flag — no OS call, nothing that
+ * could take the loader lock. */
+static int hijackable(const CONTEXT *ctx)
+{
+    if (g_in_tramp)                                    return 0;  /* a prior tick is still running */
+    if (ctx->Eip < g_image_lo || ctx->Eip >= g_image_hi) return 0;  /* our own code only */
+    if (ctx->Esp > g_stack_hi)                         return 0;  /* a real game-stack pointer ... */
+    if (ctx->Esp < g_stack_lo + 0x10000u)              return 0;  /* ... with headroom below it */
+    return 1;
+}
+
+static void tick_fire(void)
+{
+    if (!g_game_thread)
+        return;
+    if (SuspendThread(g_game_thread) == (DWORD)-1)
+        return;
+
+    CONTEXT ctx;
+    ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT;
+    if (GetThreadContext(g_game_thread, &ctx) && hijackable(&ctx)) {
+        g_in_tramp = 1;                                     /* cleared by the trampoline body */
+        *(uint32_t *)(uintptr_t)(ctx.Esp - 4) = ctx.Eip;    /* push original Eip as a return address */
+        ctx.Esp -= 4;
+        ctx.Eip  = (DWORD)(uintptr_t)&tick_trampoline;      /* redirect */
+        ctx.ContextFlags = CONTEXT_CONTROL;                 /* only Eip/Esp change */
+        SetThreadContext(g_game_thread, &ctx);
+    }
+    ResumeThread(g_game_thread);
+}
+
+static void arm_timer(LONG period_us)
+{
+    if (!g_timer)
+        return;
+    LARGE_INTEGER due;
+    due.QuadPart = -(LONGLONG)period_us * 10;   /* relative first fire, in 100 ns units */
+    LONG period_ms = (period_us + 500) / 1000;  /* kernel re-fire cadence (ms granularity) */
+    if (period_ms < 1)
+        period_ms = 1;
+    SetWaitableTimer(g_timer, &due, period_ms, NULL, NULL, FALSE);
+}
+
+static DWORD WINAPI timer_thread(LPVOID unused)
+{
+    (void)unused;
+    HANDLE waits[2] = { g_timer_stop, g_timer };   /* stop first: it wins a tie */
+    for (;;) {
+        DWORD w = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+        if (w == WAIT_OBJECT_0)          /* stop signaled */
+            break;
+        if (w == WAIT_OBJECT_0 + 1)      /* timer fired */
+            tick_fire();
+        else                              /* wait error */
+            break;
+    }
+    return 0;
 }
 
 void sys_tick_start(unsigned period_us)
 {
-    (void)period_us;
-    tick_not_yet("sys_tick_start");
+    compute_image_bounds();
+    g_period_us = (LONG)period_us;
+
+    /* The high-resolution waitable timer gives ~1 ms accuracy without raising the
+     * global system timer resolution. Fall back to a plain waitable timer on an SKU
+     * that rejects the high-resolution flag. */
+    g_timer = CreateWaitableTimerExW(NULL, NULL,
+                                     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!g_timer)
+        g_timer = CreateWaitableTimerExW(NULL, NULL, 0, TIMER_ALL_ACCESS);
+    if (!g_timer) {
+        LOGE("waitable-timer creation failed: %lu — the game clock will not advance\n",
+             (unsigned long)GetLastError());
+        return;
+    }
+
+    g_timer_stop = CreateEventW(NULL, TRUE, FALSE, NULL);   /* manual-reset */
+
+    DWORD tid;
+    g_timer_thread = CreateThread(NULL, 0, timer_thread, NULL, 0, &tid);
+    if (!g_timer_thread) {
+        LOGE("timer thread creation failed: %lu — the game clock will not advance\n",
+             (unsigned long)GetLastError());
+        return;
+    }
+    arm_timer(g_period_us);
 }
 
 void sys_tick_set_period(unsigned period_us)
 {
-    (void)period_us;
-    tick_not_yet("sys_tick_set_period");
+    g_period_us = (LONG)period_us;
+    arm_timer(g_period_us);   /* audio has its own clock, so image-free this is effectively a no-op */
 }
 
 void sys_tick_stop(void)
 {
-    /* nothing to tear down while the tick is a stub */
+    if (g_timer_stop)
+        SetEvent(g_timer_stop);
+    if (g_timer_thread) {
+        WaitForSingleObject(g_timer_thread, INFINITE);
+        CloseHandle(g_timer_thread);
+        g_timer_thread = NULL;
+    }
+    if (g_timer) {
+        CancelWaitableTimer(g_timer);
+        CloseHandle(g_timer);
+        g_timer = NULL;
+    }
+    if (g_timer_stop) {
+        CloseHandle(g_timer_stop);
+        g_timer_stop = NULL;
+    }
 }
 
 /* ---- dynamic library loading --------------------------------------------------

@@ -10,6 +10,8 @@
 
 #include <dirent.h>
 #include <dlfcn.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -37,6 +39,60 @@ void sys_tick_stop(void)
 {
     struct itimerval it = {{0, 0}, {0, 0}};
     setitimer(ITIMER_REAL, &it, NULL);
+}
+
+/* ---- the game thread ----------------------------------------------------------
+ * The tick is a process-directed interval-timer signal (SIGALRM); the SIGTERM
+ * screenshot and SIGUSR1 probe are process-directed too. To make the game thread
+ * the only recipient of all three, they are blocked before the thread is created
+ * (a new thread inherits the creator's mask) and unblocked only on the game thread
+ * itself (sys_game_thread_enter). With the timer running FLAT — the game's own
+ * descriptor-table selectors are never loaded — the signal handlers' TLS-selector
+ * swap must target THIS thread's selectors, so they are captured here too. */
+static pthread_t g_game_tid;
+static sigset_t  g_saved_mask;
+
+static void game_thread_sigset(sigset_t *s)
+{
+    sigemptyset(s);
+    sigaddset(s, SIGALRM);
+    sigaddset(s, SIGTERM);
+    sigaddset(s, SIGUSR1);
+}
+
+int sys_spawn_game_thread(void *(*fn)(void *), void *arg, size_t stack_bytes)
+{
+    sigset_t block;
+    game_thread_sigset(&block);
+    pthread_sigmask(SIG_BLOCK, &block, &g_saved_mask);
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_bytes);
+    int err = pthread_create(&g_game_tid, &attr, fn, arg);
+    pthread_attr_destroy(&attr);
+
+    if (err != 0) {
+        pthread_sigmask(SIG_SETMASK, &g_saved_mask, NULL);  /* undo the block on failure */
+        return err;
+    }
+    return 0;
+}
+
+void sys_join_game_thread(void)
+{
+    pthread_join(g_game_tid, NULL);
+}
+
+void sys_game_thread_enter(void)
+{
+    sigset_t s;
+    game_thread_sigset(&s);
+    pthread_sigmask(SIG_UNBLOCK, &s, NULL);
+    /* Capture this thread's TLS selectors so the signal handlers' fs/gs swap is a
+     * true no-op against the flat, game-selector-free timer path. */
+    __asm__ volatile("mov %%fs, %0" : "=r"(g_host_fs));
+    __asm__ volatile("mov %%gs, %0" : "=r"(g_host_gs));
 }
 
 /* ---- dynamic shared-object loading -------------------------------------------
