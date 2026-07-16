@@ -425,18 +425,20 @@ int sys_enum_dir(const char *dir, int (*cb)(const char *name, void *ud), void *u
 }
 
 /* ---- fixed-address arena mapping ----------------------------------------------
- * Reserve+commit at exactly the requested base. VirtualAlloc with an explicit
- * address returns that address or fails outright (it never relocates), the direct
- * analog of a fail-if-occupied fixed mapping; a miss is fatal, matching the
- * loader's contract that the arena live at its pinned addresses. */
-/* On a reservation failure, dump the low address space so the log answers WHAT is
- * occupying the pinned window: walk VirtualQuery over the first 8 MB and print one
- * line per region (base, end, state, protection, type, and the owning module when
- * the region is a mapped image). The game cannot run without its pinned windows, so
- * a failure here is fatal and the map is the entire diagnosis. */
+ * The arena is part of the image, not allocated here: a zero-fill .arena section
+ * that the loader maps at the fixed low addresses when it maps the exe. map_fixed
+ * only VALIDATES that the requested window is committed image memory (the full
+ * account is above map_fixed below); it never reserves or commits anything. A
+ * failed check is fatal — the game cannot run without its pinned windows. */
+/* On a validation failure, dump the low address space so the log answers WHAT is
+ * occupying the pinned window (or why it is not committed image memory): walk
+ * VirtualQuery over the first 8 MB and print one line per region (base, end, state,
+ * protection, type, and the owning module when the region is a mapped image). The
+ * game cannot run without its pinned windows, so a failure here is fatal and the
+ * map is the entire diagnosis. */
 static void dump_low_regions(void)
 {
-    LOGE("low address-space map (the pinned windows must be FREE):\n");
+    LOGE("low address-space map (the pinned windows must be committed pages of the image at 0x10000):\n");
     uintptr_t addr = 0;
     while (addr < 0x800000u) {
         MEMORY_BASIC_INFORMATION mi;
@@ -487,18 +489,44 @@ void map_fixed(uint32_t base, uint32_t size, int prot)
         }
     }
 
+    /* Base protections that count as writable. A committed, writable .arena page is mapped
+     * copy-on-write (PAGE_WRITECOPY) by the loader until its first write, after which it reads back
+     * as PAGE_READWRITE, so both — and their execute variants — are accepted. Modifier bits
+     * (guard / no-cache / write-combine) are masked off before the test. */
+    const DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY |
+                           PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+
     uint32_t lo = base & ~0xfffu;
     uint32_t hi = (base + size + 0xfffu) & ~0xfffu;
     for (uint32_t a = lo; a < hi; ) {
         MEMORY_BASIC_INFORMATION mi;
         if (!VirtualQuery((void *)(uintptr_t)a, &mi, sizeof mi) ||
             mi.State != MEM_COMMIT ||
+            mi.Type  != MEM_IMAGE ||                        /* the arena is our mapped image, not private/mapped */
             (uintptr_t)mi.AllocationBase != ARENA_IMAGE_BASE) {
-            LOGE("fixed window 0x%x..0x%x is not committed image memory at 0x%x\n", lo, hi, a);
+            LOGE("fixed window 0x%x..0x%x: 0x%x is not committed image memory of the arena\n",
+                 lo, hi, a);
             dump_low_regions();
             exit(1);
         }
-        a = (uint32_t)((uintptr_t)mi.BaseAddress + mi.RegionSize);
+        /* The first page (0x10000..0x11000) is the read-only PE header. It falls inside the DOSMEM
+         * window but is never written — the DOS pool starts one page in, at 0x11000 (see dpmi.c) — so
+         * a region lying ENTIRELY within it is exempt from the writability check. The exemption is by
+         * region extent, not by the walk cursor: VirtualQuery coalesces same-protection pages, so if
+         * the arena pages ever regressed to read-only they would merge with the header page into one
+         * region reaching past 0x11000 — and that region must still be checked (and fail). Every
+         * other arena page carries live game state and must be writable. */
+        uint32_t region_end = (uint32_t)((uintptr_t)mi.BaseAddress + mi.RegionSize);
+        if (region_end > ARENA_IMAGE_BASE + 0x1000u) {
+            DWORD base_prot = mi.Protect & ~(DWORD)(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+            if (!(base_prot & writable)) {
+                LOGE("fixed window 0x%x..0x%x: 0x%x is committed image memory but not writable "
+                     "(prot=0x%lx)\n", lo, hi, a, (unsigned long)mi.Protect);
+                dump_low_regions();
+                exit(1);
+            }
+        }
+        a = region_end;
     }
 }
 
