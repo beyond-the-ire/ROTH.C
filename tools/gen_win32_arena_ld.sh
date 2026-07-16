@@ -30,6 +30,12 @@ OUT="${2:?usage: gen_win32_arena_ld.sh <ld> <out.ld>}"
 # past the highest fixed arena address). Size = 0x4a9000 - 0x11000.
 ARENA_FILL=0x498000
 
+# Generate into a temp file and only publish it (mv -f) once the asserts pass, so a failed assert
+# never leaves a malformed/partial script on disk that a later `make` would consume as up to date.
+# The trap discards the temp on any exit path (assert failure, awk error under pipefail, signal).
+TMP="$OUT.tmp"
+trap 'rm -f "$TMP"' EXIT
+
 # Extract the default PE linker script (the block the linker prints between its
 # "====" banners under --verbose).
 DEFAULT="$("$LD" --verbose | sed -n '/^====.*====$/,/^====.*====$/p' | sed '1d;$d')"
@@ -49,8 +55,12 @@ printf '%s\n' "$DEFAULT" | awk -v fill="$ARENA_FILL" '
     next
   }
   { print }
-' > "$OUT"
+' > "$TMP"
 
-# Fail loudly if the edits did not take (a future toolchain could rename things).
-grep -q '\.arena' "$OUT" || { echo "gen_win32_arena_ld: .arena insert failed" >&2; exit 1; }
-grep -q '\.text  BLOCK' "$OUT" || { echo "gen_win32_arena_ld: .text relocation failed" >&2; exit 1; }
+# Fail loudly if the edits did not take (a future toolchain could rename things). On failure the
+# trap removes the temp, so $OUT keeps its previous (good) contents or stays absent — never partial.
+grep -q '\.arena' "$TMP" || { echo "gen_win32_arena_ld: .arena insert failed" >&2; exit 1; }
+grep -q '\.text  BLOCK' "$TMP" || { echo "gen_win32_arena_ld: .text relocation failed" >&2; exit 1; }
+
+# Both asserts passed: publish atomically.
+mv -f "$TMP" "$OUT"

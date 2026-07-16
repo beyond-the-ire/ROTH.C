@@ -15,7 +15,8 @@
 # --- build axis: CROSS (empty = native Linux i386 ; 'mingw' = i686 Windows PE) ------------------
 # CROSS unset leaves every native line byte-identical (the else branch below == the pre-axis
 # values). CROSS=mingw swaps CC to the MinGW i686 cross-gcc, drops the ELF-isms (-m32/-no-pie/
-# -lrt), adds the PE placement flags (rebase high above the 0x10000..0x4a9000 arena + ASLR off;
+# -lrt), adds the PE placement flags (base the image low at 0x10000 with a zero-fill .arena section
+# so the loader's own image reservation pins the fixed arena before the CRT colonizes it, ASLR off;
 # NOT --disable-high-entropy-va — that is 64-bit-only, i686 ld rejects it and the link fails),
 # names the product rothc.exe (never roth.exe: on a case-insensitive FS it would clobber the original ROTH.EXE),
 # and links the win32 SDL import lib. Four never-shared object trees: build/, build-vanilla/,
@@ -23,6 +24,10 @@
 # rothc.exe is a windows-subsystem binary (no console window on double-click).
 # (Trailing whitespace before an inline comment is captured by := — keep such comments on their
 #  own line for any value that composes a filename, e.g. BINBASE below.)
+# Delete any target whose recipe fails, so a half-written output (e.g. a generated file cut short) is
+# never left behind for a later build to consume as up to date.
+.DELETE_ON_ERROR:
+
 WIN_SUBSYSTEM ?= windows
 CROSS ?=
 ifeq ($(CROSS),mingw)
@@ -265,6 +270,8 @@ ifeq ($(CROSS),mingw)
 	     | grep -v '^sos_user_callback_trampoline$$' | grep . ; then \
 	   echo "FAIL: image-free binary retains an original-bytes bridge symbol"; exit 1; \
 	 else echo "PASS: $(PRODUCT_BIN) is call_orig/lift_install/trampoline-free (bar the enumerated inert veneers)"; fi
+	@# PE arena geometry: base 0x10000, ASLR off, the zero-fill .arena over the fixed window, .text above it.
+	@$(TOOLS)/pe_arena_gate.sh $(OBJDUMP) $@ || (echo "FAIL: PE arena geometry gate"; exit 1)
   ifeq ($(FLAVOR),moddable)
 	@echo "== override-registry pad validation (PE, moddable flavor) =="
 	@$(PY) $(TOOLS)/sdk_override_validate.py --pe --objdump $(OBJDUMP) $@ || (echo "FAIL: PE override pad validation"; exit 1)
@@ -408,6 +415,8 @@ dist-win: _dist-win-guard $(PRODUCT_BIN)
 	mkdir -p $(DIST_WIN)
 	cp $(PRODUCT_BIN) $(DIST_WIN)/rothc.exe
 	$(STRIP) $(DIST_WIN)/rothc.exe
+	@# re-assert the arena geometry on the STRIPPED shipping exe (strip must not have disturbed it).
+	@$(TOOLS)/pe_arena_gate.sh $(OBJDUMP) $(DIST_WIN)/rothc.exe || (echo "FAIL: PE arena geometry gate (dist)"; exit 1)
 	cp third_party/sdl3-win32/bin/SDL3.dll $(DIST_WIN)/SDL3.dll
 	cp $(PLATFORM)/viewer/gm.sf2 $(DIST_WIN)/gm.sf2
 	printf '%s\n' "$$DIST_README_WIN" > $(DIST_WIN)/README.txt
