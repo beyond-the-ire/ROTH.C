@@ -13,12 +13,12 @@ into your existing Realms of the Haunting installation folder and you can play.
 
 ## ![Playing banner](images/ROTH.C_playing_banner.png)
 
-1. Download the release bundle for your platform:
-   - **Linux:** `roth` (the engine), `libSDL3.so.0`, `gm.sf2` (soundfont), and an empty `mods/` folder.
+1. Download the latest [Release](https://github.com/beyond-the-ire/ROTH.C/releases/latest) for your system (Windows or Linux).
    - **Windows:** `rothc.exe` (the engine), `SDL3.dll`, `gm.sf2` (soundfont), and an empty `mods/` folder.
-2. Copy everything into your installation's `ROTH` directory. (this is the one containing `CONFIG.INI` and
+   - **Linux:** `roth` (the engine), `libSDL3.so.0`, `gm.sf2` (soundfont), and an empty `mods/` folder.
+2. Extract everything into your installation's `ROTH` directory. (this is the one containing `CONFIG.INI` and
    the game's data files, which is `"Realms of the Haunting/ROTH/"` in the Steam version).
-3. Run `./roth` (Linux) or double-click `rothc.exe` (Windows). The game starts windowed with music and sound.
+3. Double click `rothc.exe` (for Windows) or `roth` (for Linux). You can also run either from the commandline for logging.
 
 **Note on the Windows name:** the executable is `rothc.exe` rather than `roth.exe` on purpose —
 Windows filenames are case-insensitive, so `roth.exe` would overwrite the original `ROTH.EXE`
@@ -46,6 +46,8 @@ in the installation directory (see step 2 under the Playing section above) and d
 Mods themselves are just folders with a few files in them. See [Modding](#modding) for more information.
 
 ## ![Building from source banner](images/ROTH.C_build_banner.png)
+
+### On Linux
 
 Prerequisites: `gcc` with 32-bit multilib support, GNU `make`, `python3`, binutils, and the 32-bit
 SDL3 build (fetches a pinned SDL release; needs `cmake`, `git`, network access,
