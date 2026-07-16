@@ -77,15 +77,12 @@ jobs:
             roth_c/roth
             roth_c/roth-vanilla
 
-  # The MinGW i686 cross-build gate — NON-BLOCKING while the port is in progress
-  # until it goes green (continue-on-error). It builds win32 SDL3 from source (same pin
-  # as the Linux job) then attempts both Windows flavors via the CROSS=mingw Makefile axis. The
-  # Both Windows flavors link and pass their PE post-link gates; the job stays non-blocking
-  # until the port ships (continue-on-error), then flips to a required gate. The job shows
-  # how far it got. It flips to REQUIRED the day it boots green.
+  # The MinGW i686 cross-build gate — REQUIRED. It builds win32 SDL3 from source (same pin
+  # as the Linux job) then builds both Windows flavors via the CROSS=mingw Makefile axis; both
+  # must link and pass their PE post-link gates (nm-clean, override pads, arena geometry), and
+  # the built exe must boot under Wine to its expected no-game-data stop.
   cross-mingw:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
