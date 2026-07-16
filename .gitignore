@@ -16,6 +16,10 @@ roth_c/third_party/
 
 # built example plugins (sources are tracked; binaries are not)
 sdk/examples/*/plugin.so
+sdk/examples/*/plugin.dll
+
+# tool caches
+tools/__pycache__/
 
 # built game binaries (all axes)
 /roth_c/roth
