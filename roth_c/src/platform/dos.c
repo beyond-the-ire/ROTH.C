@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -452,6 +453,25 @@ void dos_int21(cpu_t *c)
             LOGT("int21 56 rename '%s' -> '%s' failed\n", df, dt);
             set_cf(c, 1);
             R_EAX(c) = 2;
+        }
+        break;
+    }
+    case 0x39: { /* create directory (MKDIR) — the game builds its SAVEGAME dir on first save */
+        char full[1024];
+        int rc = -1;
+        if (resolve_dos_path((const char *)R_EDX(c), full, sizeof full, 1) == 0)
+#ifdef _WIN32
+            rc = mkdir(full);
+#else
+            rc = mkdir(full, 0755);
+#endif
+        LOGT("int21 39 mkdir '%s' -> %d\n", (const char *)R_EDX(c), rc);
+        if (rc == 0 || (rc != 0 && errno == EEXIST)) {  /* created, or already present */
+            set_cf(c, 0);
+            R_EAX(c) = 0;
+        } else {
+            set_cf(c, 1);
+            R_EAX(c) = 3; /* path not found */
         }
         break;
     }
