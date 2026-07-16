@@ -204,6 +204,9 @@ freed by the module that allocated it — don't `free()` what the engine handed 
 expect the engine to free what you allocated. (Allocating and freeing within your own plugin —
 the normal case — is always fine, and the engine API already follows this rule.)
 
+Developing on a Windows PC? Run the same builds inside WSL — a full Linux environment where the
+recipes above apply unchanged, and the built `plugin.dll` runs directly on the same machine.
+
 The five examples are the templates, one per capability: `hello` (data + lifecycle), `keybinds`
 (scancode seam + game_ram), `item_grabber` (the full overlay toolkit), `wraptest` (a wrap with
 `roth_next`), `doc_viewer` (a full replacement with passthrough).

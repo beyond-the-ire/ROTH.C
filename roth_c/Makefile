@@ -304,8 +304,11 @@ viewer:
 #   roth            the game binary (a stripped copy of the moddable roth binary) — resolves libSDL3 via the
 #                   '$ORIGIN' rpath baked into it, so the bundled lib beside it is found first
 #   libSDL3.so.0    a STRIPPED copy of the bundled i386 SDL3 (SONAME libSDL3.so.0)
-#   gm.sf2          the General MIDI SoundFont (GeneralUser GS) — replaceable (see README.txt)
-#   README.txt      install + usage note
+#   gm.sf2          the General MIDI SoundFont (GeneralUser GS) — replaceable (see README_ROTHC.txt)
+#   README_ROTHC.txt  install + usage note. Deliberately NOT README.txt: the game's own install
+#                   ships a README.TXT, and on a case-insensitive filesystem copying ours into the
+#                   game directory would overwrite it. The name must stay collision-free on BOTH
+#                   platforms (users move bundles across machines), so the Windows dist matches.
 # Install: copy the dist/ contents next to the ROTH game files (CONFIG.INI, ROTH.RES, DBASE*.DAT,
 # *.DAS) and run ./roth — with no args it uses the exe's own directory as the game dir.
 DIST := dist
@@ -318,8 +321,8 @@ original content files (ROTH.RES, DBASE*.DAT, *.DAS, CONFIG.INI). No DOSBox, no
 original executable bytes.
 
 INSTALL
-  1. Copy everything in this folder (roth, libSDL3.so.0, gm.sf2, README.txt) into
-     your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
+  1. Copy everything in this folder (roth, libSDL3.so.0, gm.sf2, README_ROTHC.txt)
+     into your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
   2. Run:  ./roth
      With no arguments it uses its own directory as the game directory and opens a
      window with video, input and audio. Close the window (or press the usual quit)
@@ -353,7 +356,7 @@ dist: roth
 	chmod u+w $(DIST)/libSDL3.so.0
 	strip $(DIST)/libSDL3.so.0
 	cp $(PLATFORM)/viewer/gm.sf2 $(DIST)/gm.sf2
-	printf '%s\n' "$$DIST_README" > $(DIST)/README.txt
+	printf '%s\n' "$$DIST_README" > $(DIST)/README_ROTHC.txt
 	mkdir -p $(DIST)/mods   # drop plugin folders (mods/<name>/plugin.so) here at runtime
 	@echo "== dist/ built =="; ls -la $(DIST)
 	@echo "== dist/ ldd (libSDL3 must resolve to the bundled \$$ORIGIN copy) =="; \
@@ -366,8 +369,9 @@ dist: roth
 #                  support runtime is linked in statically, so no libwinpthread-1.dll / libgcc DLL
 #                  is needed beside it.
 #   SDL3.dll       the bundled Windows SDL3 (found automatically beside the exe by the loader)
-#   gm.sf2         the General MIDI SoundFont (GeneralUser GS) — replaceable (see README.txt)
-#   README.txt     install + usage note
+#   gm.sf2         the General MIDI SoundFont (GeneralUser GS) — replaceable (see README_ROTHC.txt)
+#   README_ROTHC.txt  install + usage note. NOT README.txt — the game's install ships README.TXT
+#                  and Windows filenames are case-insensitive, so that name would overwrite it.
 #   mods/          empty; drop plugin folders (mods/<name>/plugin.dll) here at runtime
 # Invoke on the CROSS axis: `make -C roth_c CROSS=mingw dist-win` (the guard below enforces it so
 # PRODUCT_BIN, STRIP and the moddable flavor resolve to their Windows values).
@@ -380,8 +384,8 @@ A single self-contained executable that plays the game from the original content
 files (ROTH.RES, DBASE*.DAT, *.DAS, CONFIG.INI). No DOSBox, no original executable.
 
 INSTALL
-  1. Copy everything in this folder (rothc.exe, SDL3.dll, gm.sf2, README.txt) into
-     your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
+  1. Copy everything in this folder (rothc.exe, SDL3.dll, gm.sf2, README_ROTHC.txt)
+     into your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
   2. Run:  rothc.exe
      With no arguments it uses its own directory as the game directory and opens a
      window with video, input and audio. Close the window (or press the usual quit)
@@ -419,7 +423,7 @@ dist-win: _dist-win-guard $(PRODUCT_BIN)
 	@$(TOOLS)/pe_arena_gate.sh $(OBJDUMP) $(DIST_WIN)/rothc.exe || (echo "FAIL: PE arena geometry gate (dist)"; exit 1)
 	cp third_party/sdl3-win32/bin/SDL3.dll $(DIST_WIN)/SDL3.dll
 	cp $(PLATFORM)/viewer/gm.sf2 $(DIST_WIN)/gm.sf2
-	printf '%s\n' "$$DIST_README_WIN" > $(DIST_WIN)/README.txt
+	printf '%s\n' "$$DIST_README_WIN" > $(DIST_WIN)/README_ROTHC.txt
 	mkdir -p $(DIST_WIN)/mods   # drop plugin folders (mods/<name>/plugin.dll) here at runtime
 	@echo "== dist-win/ built =="; ls -la $(DIST_WIN)
 

@@ -31,7 +31,7 @@ Then one of these:
 make                    # the default mod-ready engine (roth)
 make FLAVOR=vanilla     # the vanilla engine (roth-vanilla): no mod infrastructure at all
 make dist               # the release bundle in dist/: stripped `roth`, bundled libSDL3.so.0,
-                        # gm.sf2, README.txt, and an empty mods/ folder
+                        # gm.sf2, README_ROTHC.txt, and an empty mods/ folder
 make viewer             # optional: the headless-mode dev viewer (needs system SDL2)
 ```
 
@@ -55,8 +55,13 @@ Then the same targets with `CROSS=mingw`:
 make CROSS=mingw                    # the mod-ready Windows engine (rothc.exe)
 make CROSS=mingw FLAVOR=vanilla     # the vanilla Windows engine (rothc-vanilla.exe)
 make CROSS=mingw dist-win           # the Windows bundle in dist-win/: stripped rothc.exe,
-                                    # SDL3.dll, gm.sf2, README.txt, and an empty mods/ folder
+                                    # SDL3.dll, gm.sf2, README_ROTHC.txt, and an empty mods/ folder
 ```
+
+Building **on** a Windows PC: run the same cross-build inside
+[WSL](https://learn.microsoft.com/windows/wsl/) — it is a full Linux environment, the
+instructions above apply unchanged, and the resulting `rothc.exe` runs directly on the same
+machine. A native MSYS2 build has not been validated.
 
 Windows-specific notes:
 
