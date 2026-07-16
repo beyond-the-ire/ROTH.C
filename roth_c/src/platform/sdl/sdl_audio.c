@@ -7,15 +7,18 @@
  * is a CONSUMER port only — the audio PRODUCERS in audio.c (the digital mixer that fills the ring +
  * the MIDI capture that fills the event ring) are untouched.
  *
- * How the mailboxes are reached in-process (design §4): under --sdl this is "both" mode — audio.c
- * still shm_open()s /roth_audio + /roth_midi. We map those SAME shm objects a SECOND time in our own
- * address space (exactly the bytes the external viewer mapped cross-process). Two MAP_SHARED views
- * of one object are coherent, so:
- *   - the producer's writes to ->w (audio.c) are seen by our callback's reads, and
- *   - our callback's writes to ->r  are seen by audio.c's movie pacer (audio.c:2028-2047).
- * i.e. the cross-process producer/consumer feedback becomes an in-process one with NO code change to
- * the producer. We do NOT touch audio.c's static g_au/g_midi; we own our own views. This keeps the
- * consumer-clock semantics (->r advance drives the GDV movie pacer) exactly as the viewer's.
+ * How the mailboxes are reached depends on how the producer (audio.c) backed them, a choice it makes
+ * at boot to match the framebuffer backing:
+ *   - in-process backing (the windowed default): the rings live in this process's own memory. We take
+ *     the producer's own ring pointers (audio_pcm_ring/audio_midi_ring) and read them directly — one
+ *     buffer, no second view. The producer writes ->w, our callback advances ->r, both on the same
+ *     memory.
+ *   - shared backing (the external-viewer publish path): audio.c shm_open()s /roth_audio + /roth_midi.
+ *     We map those SAME objects a SECOND time in our own address space (the bytes an external viewer
+ *     would map cross-process). Two MAP_SHARED views of one object are coherent, so the producer's ->w
+ *     writes are seen by our callback's reads and our ->r writes are seen by audio.c's movie pacer.
+ * Either way the producer is unchanged and we never touch audio.c's own g_au/g_midi globals; the
+ * consumer-clock semantics (->r advance drives the GDV movie pacer) are identical.
  *
  * "BOTH"-mode rule (design §6, task brief): the in-process audio CLAIMS the ring — it is the sole
  * consumer that advances ->r. If an external roth-view is ALSO attached under --sdl, both would
@@ -43,15 +46,17 @@
 #include "../shared_audio.h"
 #include "../shared_midi.h"
 #include "../viewer/tsf.h"   /* NO TSF_IMPLEMENTATION here: extern API prototypes only (impl in sdl_tsf.c) */
+#include "../sys/sys.h"      /* per-OS seam: directory enumeration for the system-SoundFont scan */
 
-#include <dirent.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>   /* strcasecmp (system-soundfont extension match) */
-#include <sys/mman.h>
+#ifndef _WIN32
+#include <sys/mman.h>   /* the shared-memory backing below is a POSIX-only publish path */
+#endif
 #include <unistd.h>
 
 /* our own second views of the producer's shm mailboxes (NOT audio.c's static g_au/g_midi). The
@@ -72,10 +77,35 @@ static volatile unsigned long g_cb_calls;    /* callback invocation count (consu
 extern const char *g_exe_dir;
 extern const char *g_sf2_path;
 
+/* Producer-side backing selection + ring pointers (audio.c). When the in-process backing is active we
+ * read these pointers directly instead of mapping a second view of a named shared-memory object. */
+extern int                audio_backing_in_process(void);
+extern struct roth_audio *audio_pcm_ring(void);
+extern struct roth_midi  *audio_midi_ring(void);
+
 /* M4 SoundFont lookup order (design §5 + director addendum): (1) --sf2, (2) ROTH_SF2 env, (3) gm.sf2
  * beside the executable (the product case), (4) the legacy dev default, (5) the Linux system default
  * /usr/share/soundfonts/default.sf2, (6) the first *.sf2 in /usr/share/sounds/sf2/. Returns the chosen
  * path (into `buf` for computed cases, or a literal), or NULL if none — caller goes MIDI-silent. */
+/* Collector for the system-SoundFont scan: keep the first *.sf2 entry (case-insensitive). */
+struct sf2_pick_ctx {
+    char       *buf;
+    size_t      bufsz;
+    const char *pick;
+};
+
+static int sf2_pick_first(const char *name, void *ud)
+{
+    struct sf2_pick_ctx *c = ud;
+    size_t l = strlen(name);
+    if (l > 4 && !strcasecmp(name + l - 4, ".sf2")) {
+        snprintf(c->buf, c->bufsz, "/usr/share/sounds/sf2/%s", name);
+        c->pick = c->buf;
+        return 0;                                                   /* first match wins — stop */
+    }
+    return 1;
+}
+
 static const char *resolve_sf2(char *buf, size_t bufsz)
 {
     if (g_sf2_path && *g_sf2_path)
@@ -92,22 +122,10 @@ static const char *resolve_sf2(char *buf, size_t bufsz)
         return "recomp/viewer/gm.sf2";
     if (access("/usr/share/soundfonts/default.sf2", R_OK) == 0)     /* 5. system default */
         return "/usr/share/soundfonts/default.sf2";
-    DIR *d = opendir("/usr/share/sounds/sf2");                      /* 6. first *.sf2 in the sf2 dir */
-    if (d) {
-        struct dirent *e;
-        const char *pick = NULL;
-        while ((e = readdir(d))) {
-            size_t l = strlen(e->d_name);
-            if (l > 4 && !strcasecmp(e->d_name + l - 4, ".sf2")) {
-                snprintf(buf, bufsz, "/usr/share/sounds/sf2/%s", e->d_name);
-                pick = buf;
-                break;
-            }
-        }
-        closedir(d);
-        if (pick)
-            return pick;
-    }
+    struct sf2_pick_ctx c = { buf, bufsz, NULL };                   /* 6. first *.sf2 in the sf2 dir */
+    sys_enum_dir("/usr/share/sounds/sf2", sf2_pick_first, &c);
+    if (c.pick)
+        return c.pick;
     return NULL;                                                    /* 7. none found */
 }
 
@@ -177,38 +195,63 @@ void sdl_audio_poll_open(void)
     if (g_audio_ready || g_audio_gaveup)
         return;
 
-    /* Map the producer's PCM ring by name — the same /roth_audio the external viewer opened
-     * (viewer.c:140-148), here a second in-process MAP_SHARED view. Retriable: audio_init() on the
-     * game thread may not have created it yet. */
-    int fd = shm_open(ROTH_AUDIO_SHM_NAME, O_RDWR, 0600);
-    if (fd < 0)
-        return;                 /* not created yet -> try again next present frame */
-    struct roth_audio *au = mmap(NULL, sizeof *au, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    close(fd);
-    if (au == MAP_FAILED)
-        return;
-    if (au->magic != ROTH_AUDIO_MAGIC || !au->ready) {
-        munmap(au, sizeof *au); /* created but not initialized yet -> retry next frame */
-        return;
+    /* Two backings for the producer's rings (see the file header). In-process: read the producer's own
+     * pointers directly. Shared: map the named object a second time. Both are retriable — audio_init()
+     * runs on the game thread and may not have set the ring up yet when the present loop first spins. */
+    int in_proc = audio_backing_in_process();
+    struct roth_audio *au;
+
+    if (in_proc) {
+        au = audio_pcm_ring();  /* the producer's own buffer — no second view to map */
+        if (!au || au->magic != ROTH_AUDIO_MAGIC || !au->ready)
+            return;             /* not set up yet -> try again next present frame */
+    } else {
+#ifdef _WIN32
+        return;                     /* named shared-memory backing is a POSIX-only publish path */
+#else
+        int fd = shm_open(ROTH_AUDIO_SHM_NAME, O_RDWR, 0600);
+        if (fd < 0)
+            return;                 /* not created yet -> try again next present frame */
+        au = mmap(NULL, sizeof *au, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        close(fd);
+        if (au == MAP_FAILED)
+            return;
+        if (au->magic != ROTH_AUDIO_MAGIC || !au->ready) {
+            munmap(au, sizeof *au); /* created but not initialized yet -> retry next frame */
+            return;
+        }
+#endif
     }
 
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {   /* SDL3: bool return, true = ok */
         fprintf(stderr, "[sdl-audio] SDL_InitSubSystem(AUDIO): %s — no sound\n", SDL_GetError());
-        munmap(au, sizeof *au);
+#ifndef _WIN32
+        if (!in_proc)
+            munmap(au, sizeof *au); /* in-process: the ring is the producer's — never unmap it */
+#endif
         g_audio_gaveup = 1;
         return;
     }
     g_audio_inited = 1;
 
-    /* MIDI ring is OPTIONAL: absent when ROTH_MIDI=0 (audio.c never creates /roth_midi then). Map it
-     * + load the SoundFont; if either fails, MIDI is silent and PCM still plays (viewer.c:164-186). */
+    /* MIDI ring is OPTIONAL: absent when ROTH_MIDI=0 (audio.c never creates the ring then). In-process,
+     * take the producer's pointer directly; shared, map the named object. If it's absent/not ready or the
+     * SoundFont fails to load, MIDI is silent and PCM still plays. */
     struct roth_midi *midi = NULL;
-    int mfd = shm_open(ROTH_MIDI_SHM_NAME, O_RDWR, 0600);
-    if (mfd >= 0) {
-        midi = mmap(NULL, sizeof *midi, PROT_READ | PROT_WRITE, MAP_SHARED, mfd, 0);
-        close(mfd);
-        if (midi == MAP_FAILED || midi->magic != ROTH_MIDI_MAGIC || !midi->ready)
+    if (in_proc) {
+        midi = audio_midi_ring();
+        if (midi && (midi->magic != ROTH_MIDI_MAGIC || !midi->ready))
             midi = NULL;
+    } else {
+#ifndef _WIN32
+        int mfd = shm_open(ROTH_MIDI_SHM_NAME, O_RDWR, 0600);
+        if (mfd >= 0) {
+            midi = mmap(NULL, sizeof *midi, PROT_READ | PROT_WRITE, MAP_SHARED, mfd, 0);
+            close(mfd);
+            if (midi == MAP_FAILED || midi->magic != ROTH_MIDI_MAGIC || !midi->ready)
+                midi = NULL;
+        }
+#endif
     }
     tsf *synth = NULL;
     if (midi) {

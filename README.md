@@ -13,11 +13,16 @@ into your existing Realms of the Haunting installation folder and you can play.
 
 ## ![Playing banner](images/ROTH.C_playing_banner.png)
 
-1. Download the release bundle: `roth` (the engine), `libSDL3.so.0`, `gm.sf2` (soundfont), and an
-   empty `mods/` folder.
-2. Copy everything into your installation's `ROTH` directory. (this is the one containing `CONFIG.INI` and
+1. Download the latest [Release](https://github.com/beyond-the-ire/ROTH.C/releases/latest) for your system (Windows or Linux).
+   - **Windows:** `rothc.exe` (the engine), `SDL3.dll`, `gm.sf2` (soundfont), and an empty `mods/` folder.
+   - **Linux:** `roth` (the engine), `libSDL3.so.0`, `gm.sf2` (soundfont), and an empty `mods/` folder.
+2. Extract everything into your installation's `ROTH` directory. (this is the one containing `CONFIG.INI` and
    the game's data files, which is `"Realms of the Haunting/ROTH/"` in the Steam version).
-3. Run `./roth` (or double-click it). The game starts windowed with music and sound.
+3. Double click `rothc.exe` (for Windows) or `roth` (for Linux). You can also run either from the commandline for logging.
+
+**Note on the Windows name:** the executable is `rothc.exe` rather than `roth.exe` on purpose —
+Windows filenames are case-insensitive, so `roth.exe` would overwrite the original `ROTH.EXE`
+sitting in the same folder.
 
 **Note on MIDI:** Since the original game uses MIDI music and relied on a physical sound card back in the day, this native
 version of the game relies on using a soundfont to determine how to play the MIDI tracks in the game.
@@ -26,9 +31,10 @@ to use your own soundfont without needing specialized MIDI-playing software.
 
 ## ![System banner](images/ROTH.C_system_banner.png)
 
-Currently, only Linux x86 is supported, but I am working on the Windows version next. The engine is
-a 32-bit program by nature, which is kept preserverd, so 32-bit runtime libraries are required
-(the release bundles its own SDL3).
+Linux x86 and Windows are supported. The engine is a 32-bit program by nature, which is kept
+preserved, so the Linux build requires 32-bit runtime libraries (the release bundles its own
+SDL3), and the Windows build is a 32-bit executable that runs as-is on 64-bit Windows (the
+release bundles its own `SDL3.dll`; no other runtime is needed).
 
 ## ![Mods banner](images/ROTH.C_mods_banner.png)
 
@@ -40,6 +46,8 @@ in the installation directory (see step 2 under the Playing section above) and d
 Mods themselves are just folders with a few files in them. See [Modding](#modding) for more information.
 
 ## ![Building from source banner](images/ROTH.C_build_banner.png)
+
+### On Linux
 
 Prerequisites: `gcc` with 32-bit multilib support, GNU `make`, `python3`, binutils, and the 32-bit
 SDL3 build (fetches a pinned SDL release; needs `cmake`, `git`, network access,
@@ -64,6 +72,22 @@ tools.
 - **vanilla** (`make -C roth_c FLAVOR=vanilla`): no mod surface at all — no loader, no padding.
   Mods are impossible by construction. The reference artifact for anyone who wants the
   reconstruction and nothing else.
+
+### The Windows build
+
+The Windows executable is cross-compiled from Linux with the MinGW i686 toolchain
+(`gcc-mingw-w64-i686` on Debian/Ubuntu):
+
+```
+tools/build_sdl3_win32.sh              # one-time: builds roth_c/third_party/sdl3-win32
+make -C roth_c CROSS=mingw             # the moddable Windows engine (rothc.exe)
+make -C roth_c CROSS=mingw dist-win    # assemble the Windows bundle into roth_c/dist-win/
+```
+
+`CROSS=mingw` composes with everything above (`FLAVOR=vanilla` included), and the Windows link
+runs additional post-link gates of its own — including one that asserts the executable's memory
+layout, which the engine's fixed-address data depends on. Details in
+[`roth_c/README.md`](roth_c/README.md).
 
 ## ![Modding banner](images/ROTH.C_modding_banner.png)
 

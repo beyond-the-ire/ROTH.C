@@ -13,7 +13,11 @@
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include "win32_compat.h"   /* register-frame + signal-jump shims for the Windows build */
+#else
 #include <ucontext.h>
+#endif
 
 /* LE layout, rebased like DOS/4GW does at load time: the file-preferred bases
  * (0x10000/0x60000/0x70000) overlap the VGA window and DOS low memory, so the
@@ -181,6 +185,12 @@ void au_timer_unlock(void);           /* leave it; the next SIGALRM delivers any
  * return address for injected IRQs; fetching it faults and unwinds. */
 #define IRQ_RET_MAGIC 0xffff1000u
 void irq_timer_start(void);
+/* SIGALRM tick handler (POSIX). The POSIX tick seam installs this via sys_tick_start(); it restores
+ * the host TLS selectors, runs the portable tick body (roth_tick_isr), then — when the original image
+ * is mapped — services the injected timer/keyboard IRQ. Signal-delivered; POSIX platforms only. */
+#ifndef _WIN32
+void alarm_handler(int sig, siginfo_t *si, void *ucv);
+#endif
 
 #define LOGT(...) do { if (g_trace) fprintf(stderr, "[trap] " __VA_ARGS__); } while (0)
 #define LOGE(...) fprintf(stderr, "[host] " __VA_ARGS__)

@@ -47,6 +47,8 @@ static int         g_au_ab_va_on;    /* the list is active (non-empty AND ROTH_A
 static uint32_t    g_au_va_filter;   /* ROTH_AU_TRACE_VA=0x.. (canon; 0 = trace all) */
 static const char *g_au_path = "/tmp/roth_au_trace.txt"; /* ROTH_AU_TRACE_FILE */
 
+static void au_snap_pool_init(void);   /* one-time snapshot-pool allocation; defined with the pool below */
+
 static void __attribute__((constructor)) au_trace_ctor(void)
 {
     const char *s = getenv("ROTH_AU_TRACE");
@@ -86,6 +88,11 @@ static void __attribute__((constructor)) au_trace_ctor(void)
     s = getenv("ROTH_AU_TRACE_FILE");
     if (s && s[0])
         g_au_path = s;
+
+    /* Allocate the (large) before/after snapshot pool ONCE, here at init, and only when tracing is
+     * on — never lazily on the capture hot path, which can run in tick/ISR-like context. */
+    if (g_au_on)
+        au_snap_pool_init();
 }
 
 /* Bridge-side A/B selectors: read once at startup; a plain int load on the hot path.
@@ -194,11 +201,25 @@ static uint32_t            g_cached_mtick;  /* last audio.c poll tick (au_trace_
 /* ---- the before/after snapshot pool ------------------------------------------------- */
 /* Sized to the largest window-set: voice-start (0x4a641) and the 4 voice-field leaves
  * (0x4a54a/0x49fe9/0x4a28c/0x4ac55) each = 0x40 + 0xc0 + 0xd80 = 0xe80 (3712) with the runtime-resolved
- * 32-voice-struct window included. Every other VA is <= 0x220 (close_voices' gap set). The
- * pool is 2*AU_SNAP_BYTES*AU_TR_N of demand-zeroed BSS, only touched while ROTH_AU_TRACE is on. */
+ * 32-voice-struct window included. Every other VA is <= 0x220 (close_voices' gap set). At
+ * 2*AU_SNAP_BYTES*AU_TR_N the pool is 64 MB, so it is NOT carried as BSS (that would dominate the
+ * image's memory size). It is allocated ONCE from the trace-init path (au_trace_ctor) only when
+ * ROTH_AU_TRACE is set, and stays NULL — with every access guarded — when tracing is off or the
+ * one-time allocation fails. Indexed 1:1 with the ring (snap_id == ring slot). */
 #define AU_SNAP_BYTES 4096u
 struct au_snap { uint8_t b[AU_SNAP_BYTES], a[AU_SNAP_BYTES]; };
-static struct au_snap g_au_snap[AU_TR_N];  /* 1:1 with the ring (snap_id == ring slot) */
+static struct au_snap *g_au_snap;  /* [AU_TR_N]; NULL until trace-init allocates it (see au_trace_ctor) */
+
+/* One-time allocation of the before/after snapshot pool, called from the trace-init constructor when
+ * ROTH_AU_TRACE is set. On failure the pool stays NULL and snapshotting is disabled (every access is
+ * guarded); the ring and the rest of the trace still run. */
+static void au_snap_pool_init(void)
+{
+    g_au_snap = calloc(AU_TR_N, sizeof *g_au_snap);
+    if (!g_au_snap)
+        LOGE("audio_trace: snapshot pool alloc (%u MB) failed — snapshotting disabled, ring still active\n",
+             (unsigned)(((uint64_t)AU_TR_N * sizeof(struct au_snap)) >> 20));
+}
 
 /* Runtime-resolved window sentinel: a win.canon of AU_FARG_VOICES marks the 32 fn-0xa voice
  * structs (voice_start/voice_load write-set) — the base is not a fixed canon address but is resolved
@@ -394,7 +415,8 @@ int au_trace_enter(uint32_t va, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
     r->branch = au_branch(va, a0);
     r->phase = au_phase(va);
     r->snap_id = (uint16_t)slot;
-    au_capture(d, g_au_snap[slot].b);                /* before-snapshot */
+    if (g_au_snap)
+        au_capture(d, g_au_snap[slot].b);            /* before-snapshot (NULL pool => snapshotting off) */
     return (int)slot;
 }
 
@@ -405,7 +427,8 @@ void au_trace_exit(int token, uint32_t ret)
     uint32_t slot = (uint32_t)token;
     struct au_trace_rec *r = &g_au_tr[slot];
     r->ret = ret;
-    au_capture(au_desc_for(r->va), g_au_snap[slot].a); /* after-snapshot */
+    if (g_au_snap)
+        au_capture(au_desc_for(r->va), g_au_snap[slot].a); /* after-snapshot (NULL pool => off) */
     /* Publish: bump the committed watermark LAST so a drain preempting an in-flight call (during
      * call_orig) never flushes this record before ret + after-snapshot are stored. Single-core
      * signal preemption => a volatile store ordered last is sufficient (no true concurrency). */
@@ -501,11 +524,11 @@ static char g_line[AU_LINE];
 static char *emit_diff(char *p, const struct au_trace_rec *r)
 {
     const struct au_desc *d = au_desc_for(r->va);
+    if (!d || !g_au_snap)                     /* no descriptor, or the snapshot pool was never allocated */
+        return p;
     const uint8_t *b = g_au_snap[r->snap_id].b;
     const uint8_t *a = g_au_snap[r->snap_id].a;
     uint32_t off = 0;
-    if (!d)
-        return p;
     for (unsigned i = 0; i < d->nwin; i++) {
         uint32_t base = d->win[i].canon == AU_FARG_VOICES ? AU_FARG_LABEL : d->win[i].canon;
         uint16_t len = d->win[i].len;

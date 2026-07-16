@@ -76,3 +76,66 @@ jobs:
           path: |
             roth_c/roth
             roth_c/roth-vanilla
+
+  # The MinGW i686 cross-build gate — NON-BLOCKING while the port is in progress
+  # until it goes green (continue-on-error). It builds win32 SDL3 from source (same pin
+  # as the Linux job) then attempts both Windows flavors via the CROSS=mingw Makefile axis. The
+  # Both Windows flavors link and pass their PE post-link gates; the job stays non-blocking
+  # until the port ships (continue-on-error), then flips to a required gate. The job shows
+  # how far it got. It flips to REQUIRED the day it boots green.
+  cross-mingw:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the MinGW i686 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+            binutils-mingw-w64-i686 cmake ninja-build python3 git
+          # No i386 -dev client libs: win32 SDL uses in-tree Win32/WASAPI backends (build design B).
+
+      - name: Cache the win32 SDL3 build
+        id: sdl-win-cache
+        uses: actions/cache@v4
+        with:
+          # A distinct SUB-PATH (never the whole third_party/) so it can't clobber the engine job's
+          # sdl3-i386 cache over the shared third_party dir. Keyed on BOTH SDL scripts: the win32
+          # pin must stay in lockstep with the i386 pin, so a change to either busts it.
+          path: roth_c/third_party/sdl3-win32
+          key: sdl3-win32-v1-${{ runner.os }}-${{ hashFiles('tools/build_sdl3_win32.sh', 'tools/build_sdl3_i386.sh') }}
+
+      - name: Build win32 SDL3 (cache miss only)
+        if: steps.sdl-win-cache.outputs.cache-hit != 'true'
+        run: tools/build_sdl3_win32.sh
+
+      - name: Build the moddable Windows binary (CROSS=mingw)
+        run: make -C roth_c CROSS=mingw
+
+      - name: Build the vanilla Windows binary (CROSS=mingw)
+        run: make -C roth_c CROSS=mingw FLAVOR=vanilla
+
+      - name: Wine boot smoke (the binary runs and reaches the game-files guidance)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wine32:i386 >/dev/null
+          mkdir -p /tmp/winesmoke
+          cp roth_c/rothc.exe roth_c/third_party/sdl3-win32/bin/SDL3.dll /tmp/winesmoke/
+          cd /tmp/winesmoke
+          timeout 120 wine rothc.exe --list-mods > smoke.log 2>&1 || true
+          # The exe must start, resolve its own directory, and print the game-files guidance.
+          grep -a "cannot find CONFIG.INI" smoke.log
+
+      - name: Upload rothc.exe artifacts (whatever built)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          # A red link leaves no exe — warn (don't fail the upload step confusingly) so the job's
+          # own build steps remain the signal, not the artifact step.
+          if-no-files-found: warn
+          path: |
+            roth_c/rothc.exe
+            roth_c/rothc-vanilla.exe

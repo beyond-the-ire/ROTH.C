@@ -7,11 +7,13 @@
  */
 #include "roth_host.h"
 #include "shared_fb.h"
+#include "sys/sys.h"    /* per-OS seam: low (32-bit-addressable) allocation */
 
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
+#ifndef _WIN32
 #include <execinfo.h>   /* ROTH_FB_TRACE: backtrace the render-target base-set (mirror-buffer bug) */
+#endif
 
 /* ROTH_FB_TRACE diagnostic (2026-07-09): the secondary/mirror render-target selector was seen
  * resolving to unmapped memory (segfaults in render_secondary_surface_list). This gate logs every
@@ -26,7 +28,24 @@ static int fb_trace_on(void)
 
 static uint32_t g_pm_vec[256];     /* CX:EDX pairs, CX implicit game CS */
 static uint32_t g_exc_handler[32];
-static uint32_t g_dosmem_brk = DOSMEM_LIN;
+
+/* The base of the usable DOS low-memory scratch pool. On Windows the first page of the DOSMEM
+ * window (DOSMEM_LIN .. DOSMEM_LIN+0x1000) is the executable's own read-only PE header — the image
+ * is based there so the loader pins the fixed arena, and writing that page corrupts the header the
+ * OS re-reads during thread creation. So the pool starts one page in; the lost page is DOS scratch
+ * the game never depends on. Everywhere else the whole window is ordinary writable memory. */
+#ifdef _WIN32
+#define DOSMEM_POOL_LIN (DOSMEM_LIN + 0x1000u)
+#else
+#define DOSMEM_POOL_LIN (DOSMEM_LIN)
+#endif
+
+/* The DOS allocation break starts one paragraph into the pool: the first paragraph
+ * (DOSMEM_POOL_LIN .. +0x10) is reserved for the DBCS lead-byte table that the int21 AH=63 handler
+ * publishes at DOSMEM_POOL_LIN. Were the break to start at DOSMEM_POOL_LIN, that address would also
+ * be handed out as the first DOS allocation, and a later AH=63 call would memset those bytes inside
+ * live game memory. Reserving the paragraph keeps the table's home clear of any allocation. */
+static uint32_t g_dosmem_brk = DOSMEM_POOL_LIN + 0x10;
 
 /* ---- VESA / VBE modes ---------------------------------------------------
  * Modes we advertise to the game's mode enumerator (match_vesa_video_modes
@@ -205,9 +224,11 @@ void dpmi_int31(cpu_t *c)
                 LOGE("[fbtrace] set-base RENDER-TARGET %s sel 0x%x -> base 0x%x  "
                      "[now: primary sel 0x%x base 0x%x | secondary sel 0x%x base 0x%x]\n",
                      which, sel, base, rp, g_known_base[rp >> 3], rs, g_known_base[rs >> 3]);
+#ifndef _WIN32
                 void *bt[32];
                 int n = backtrace(bt, 32);
                 backtrace_symbols_fd(bt, n, 2);
+#endif
             }
         }
         break;
@@ -323,10 +344,11 @@ void dpmi_int31(cpu_t *c)
             }
             LOGT("dpmi 0300: VBE 4F01 mode 0x%x -> %s\n", mode, m ? "ok" : "unsupported");
         } else if (vec == 0x21 && AH_OF(rm_eax) == 0x63) {
-            /* get DBCS lead-byte table -> DS:SI; empty table = US DOS */
-            memset((void *)DOSMEM_LIN, 0, 4);
-            *(uint16_t *)(rm + 0x24) = DOSMEM_LIN >> 4; /* RM DS */
-            *(uint32_t *)(rm + 0x04) = DOSMEM_LIN & 0xf; /* RM ESI */
+            /* get DBCS lead-byte table -> DS:SI; empty table = US DOS. Use the pool base, not
+             * DOSMEM_LIN: on Windows the latter is the read-only PE-header page (see above). */
+            memset((void *)DOSMEM_POOL_LIN, 0, 4);
+            *(uint16_t *)(rm + 0x24) = DOSMEM_POOL_LIN >> 4; /* RM DS */
+            *(uint32_t *)(rm + 0x04) = DOSMEM_POOL_LIN & 0xf; /* RM ESI */
             *(uint32_t *)(rm + 0x1c) = rm_eax & ~0xffu;  /* AL=0 ok */
             *rm_flags &= ~1u; /* CF clear */
             LOGT("dpmi 0300: rm int21 AH=63 (DBCS table) -> empty\n");
@@ -351,10 +373,9 @@ void dpmi_int31(cpu_t *c)
     }
     case 0x0501: { /* allocate linear memory BX:CX -> BX:CX addr, SI:DI handle */
         uint32_t size = ((R_EBX(c) & 0xffff) << 16) | (R_ECX(c) & 0xffff);
-        void *p = mmap(NULL, (size + 0xfff) & ~0xfffu, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+        void *p = sys_lowmem_alloc((size + 0xfff) & ~0xfffu);
         LOGT("dpmi 0501: alloc 0x%x -> %p\n", size, p);
-        if (p == MAP_FAILED) {
+        if (!p) {
             set_cf(c, 1);
             break;
         }

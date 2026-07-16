@@ -186,6 +186,27 @@ Copy an example's `Makefile` — the whole recipe is:
 gcc -m32 -shared -fPIC -std=c11 -Wall -Wextra -Werror -I<sdk>/include -o plugin.so my_mod.c
 ```
 
+The same source builds the Windows plugin with the MinGW i686 cross-compiler — drop `-fPIC`
+(it is ELF-only; PE code relocates on its own):
+
+```
+i686-w64-mingw32-gcc -shared -std=c11 -Wall -Wextra -Werror -I<sdk>/include -o plugin.dll my_mod.c
+```
+
+No `dllexport` annotations or `.def` files are needed in your code — `roth_sdk.h`'s
+`ROTH_PLUGIN_EXPORT` handles the entry-point export on both platforms. The engine loads
+`plugin.so` on Linux and `plugin.dll` on Windows from the same `mods/<name>/` folder, so one mod
+folder that ships both files installs on either platform. The example Makefiles carry both
+recipes: `make` for Linux, `make CROSS=mingw` for Windows.
+
+One Windows rule: the engine and each plugin link separate C runtimes, so a memory block must be
+freed by the module that allocated it — don't `free()` what the engine handed you, and don't
+expect the engine to free what you allocated. (Allocating and freeing within your own plugin —
+the normal case — is always fine, and the engine API already follows this rule.)
+
+Developing on a Windows PC? Run the same builds inside WSL — a full Linux environment where the
+recipes above apply unchanged, and the built `plugin.dll` runs directly on the same machine.
+
 The five examples are the templates, one per capability: `hello` (data + lifecycle), `keybinds`
 (scancode seam + game_ram), `item_grabber` (the full overlay toolkit), `wraptest` (a wrap with
 `roth_next`), `doc_viewer` (a full replacement with passthrough).
@@ -200,6 +221,6 @@ you trust, exactly as you would for any native-modded game (Skyrim/SKSE, BepInEx
 ## Not currently supported
 
 Per-function source fingerprints and changed-function release manifests (a "mod outdated" early
-warning), zip-packaged mod archives, a scripting (Lua) tier, the Windows port, and `on_audio`
-dispatch are not present. The SDK's append-only versioning is designed to accommodate each as
-ordinary additive growth.
+warning), zip-packaged mod archives, a scripting (Lua) tier, and `on_audio` dispatch are not
+present. The SDK's append-only versioning is designed to accommodate each as ordinary additive
+growth.

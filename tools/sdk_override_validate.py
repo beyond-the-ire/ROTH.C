@@ -17,6 +17,15 @@ The permanent gate for three properties that must hold in the linked binary:
 
 Consumes only the linked roth_c/roth + objdump/nm/readelf + the checked-in schemas.
 Importable (gate(binary) for tools/sdk_check.py, SKIPs if the binary is absent) and a CLI.
+
+PE mode (--pe): the same pad property, verified on a Windows PE image where the ELF-only
+inputs do not apply. The i686-PE toolchain drops the __patchable_function_entries section under
+--gc-sections even in a padded build, so the section is not a reliable discriminator there;
+instead the pads are read directly from the .text entry bytes via `objdump -d`. --pe asserts
+every eligible+present entry begins with the five-NOP pad; --pe --expect-no-pads asserts the
+inverse (no eligible entry begins with the pad) for a pristine/reference image. The interior-branch
+and dispatch-edge sub-checks (which need workshop-only edge data absent from the product tree) are
+not part of PE mode. Symbol names are matched underscore-aware (i686-PE prefixes C names with `_`).
 """
 import json
 import os
@@ -188,10 +197,99 @@ def gate(binary=BINARY):
     return name, ok, msgs
 
 
+_PE_HDR = re.compile(r"^[0-9a-f]+ <([^>]+)>:")
+PAD = ["90", "90", "90", "90", "90"]
+
+
+def _pe_entry_bytes(binary, objdump):
+    """symbol -> the first up-to-5 machine bytes at its entry (list of hex byte strings), read from
+    the PE disassembly. i686-PE symbolizes C names with a leading underscore (recovered by the caller)."""
+    out = subprocess.check_output([objdump, "-d", binary], text=True,
+                                  stderr=subprocess.DEVNULL).splitlines()
+    entries = {}
+    cur = None
+    for ln in out:
+        h = _PE_HDR.match(ln)
+        if h:
+            cur = h.group(1)
+            entries[cur] = []
+            continue
+        if cur is None:
+            continue
+        mi = _INSN.match(ln)
+        if mi and len(entries[cur]) < 5:
+            entries[cur].extend(mi.group(2).split())
+    return entries
+
+
+def gate_pe(binary=BINARY, objdump="objdump", expect_no_pads=False):
+    """PE pad gate. Returns (name, ok, msgs). SKIP (ok=True) if the binary or objdump is absent.
+
+    expect_no_pads=False (moddable): every eligible+present entry begins with the 5-NOP pad.
+    expect_no_pads=True  (vanilla) : NO eligible+present entry begins with the 5-NOP pad.
+    """
+    name = "override-validate-pe"
+    if not os.path.exists(binary):
+        return name, True, [f"{os.path.relpath(binary, REPO)} not built — SKIP "
+                            f"(build the PE image to run pad validation)"]
+    if subprocess.run(["which", objdump], capture_output=True).returncode != 0:
+        return name, True, [f"{objdump} unavailable — SKIP"]
+
+    eligible = {t["canonical_name"] for t in OVR.eligible_targets()}
+    entries = _pe_entry_bytes(binary, objdump)
+    # recover the C name from the PE decoration (strip exactly one leading underscore); eligible
+    # engine names never start with an underscore, so this is unambiguous.
+    present = {}
+    for sym, bl in entries.items():
+        cname = sym[1:] if sym.startswith("_") else sym
+        if cname in eligible:
+            present[cname] = bl[:5]
+    if not present:
+        return name, False, ["no eligible override target found in the PE disassembly "
+                             "(wrong image or objdump produced no symbolized entries?)"]
+
+    if expect_no_pads:
+        leaked = sorted(n for n, bl in present.items() if bl == PAD)
+        if leaked:
+            return name, False, [f"{len(leaked)} eligible entr{'y' if len(leaked) == 1 else 'ies'} "
+                                 f"begin with the 5-NOP override pad in a pad-free image (e.g. "
+                                 f"{leaked[0]}) — the pad flag leaked into the reference build"]
+        return name, True, [f"no-pads: none of {len(present)} eligible+present entries begins with "
+                            f"the 5-NOP pad (mods impossible by construction)"]
+    bad = sorted((n, " ".join(bl) or "<none>") for n, bl in present.items() if bl != PAD)
+    if bad:
+        return name, False, [f"{len(bad)} eligible entr{'y' if len(bad) == 1 else 'ies'} WITHOUT a "
+                             f"5-NOP pad (e.g. {bad[0][0]}: {bad[0][1]}) — fail closed"]
+    return name, True, [f"pad-present: {len(present)} eligible+present entries all begin with the "
+                        f"5-NOP override pad"]
+
+
 def main():
     import sys
-    binary = sys.argv[1] if len(sys.argv) > 1 else BINARY
-    name, ok, msgs = gate(binary)
+    args = sys.argv[1:]
+    pe = False
+    expect_no_pads = False
+    objdump = "objdump"
+    binary = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--pe":
+            pe = True
+        elif a == "--expect-no-pads":
+            expect_no_pads = True
+        elif a == "--objdump":
+            i += 1
+            objdump = args[i]
+        elif not a.startswith("--"):
+            binary = a
+        i += 1
+    if binary is None:
+        binary = BINARY
+    if pe:
+        name, ok, msgs = gate_pe(binary, objdump, expect_no_pads)
+    else:
+        name, ok, msgs = gate(binary)
     status = "PASS" if ok else "FAIL"
     print(f"[{status}] {name}")
     for m in msgs:

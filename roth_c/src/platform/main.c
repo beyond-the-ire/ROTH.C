@@ -15,14 +15,16 @@
 #include "calltrace.h"
 #include "capture.h"
 
-#include <asm/ldt.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#ifndef _WIN32
+#include <asm/ldt.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
-#include <unistd.h>
+#endif
 
 #ifdef ROTH_STANDALONE
 /* M1 SDL fold-in (task #102 / docs/SDL3_FOLD_DESIGN.md): the in-process SDL window + the
@@ -30,8 +32,7 @@
  * ROTH_STANDALONE) never sees pthread/SDL — its link stays -lrt-only and behaviour-identical. */
 #include <pthread.h>
 #include <signal.h>
-#include <dirent.h>    /* M4: case-insensitive CONFIG.INI probe for the exe-dir game-dir default */
-#include <strings.h>   /* strcasecmp */
+#include "sys/sys.h"         /* per-OS seam: executable-directory + directory queries */
 #include "sdl/sdl_host.h"
 #include "plugin_loader.h"   /* task #103: the runtime plugin platform (imgfree only) */
 #endif
@@ -55,6 +56,12 @@ void shm_setup(void)
     if (g_shm)
         return;
 #endif
+#ifdef _WIN32
+    /* The shared-memory publish path exists for an out-of-process viewer — a POSIX-only facility.
+     * The window reads its framebuffer in-process, so nothing here is needed on this platform. */
+    LOGE("shared-memory framebuffer publishing is not available on this platform\n");
+    return;
+#else
     int fd = shm_open(ROTH_SHM_NAME, O_CREAT | O_RDWR, 0600);
     if (fd < 0) {
         LOGE("shm_open failed: %s (running headless)\n", strerror(errno));
@@ -80,6 +87,7 @@ void shm_setup(void)
     g_shm->host_alive = 1;
     LOGE("shared framebuffer ready at " ROTH_SHM_NAME
          " — run recomp/viewer/roth-view\n");
+#endif /* !_WIN32 */
 }
 
 #ifdef ROTH_STANDALONE
@@ -118,6 +126,14 @@ static void mem_setup(void)
 {
     if (g_shm)
         return;
+#ifdef _WIN32
+    /* A private, in-process framebuffer buffer the window reads directly. */
+    g_shm = calloc(1, sizeof(struct roth_shm));
+    if (!g_shm) {
+        LOGE("private framebuffer allocation failed\n");
+        return;
+    }
+#else
     g_shm = mmap(NULL, sizeof(struct roth_shm), PROT_READ | PROT_WRITE,
                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (g_shm == MAP_FAILED) {
@@ -125,6 +141,7 @@ static void mem_setup(void)
         LOGE("private framebuffer mmap failed: %s\n", strerror(errno));
         return;
     }
+#endif
     memset(g_shm, 0, sizeof *g_shm);
     g_shm->magic = ROTH_SHM_MAGIC;
     g_shm->width = ROTH_FB_W;
@@ -139,15 +156,7 @@ static int dir_has_config_ini(const char *dir)
     snprintf(p, sizeof p, "%s/CONFIG.INI", dir);
     if (access(p, F_OK) == 0)
         return 1;
-    DIR *d = opendir(dir);
-    if (!d)
-        return 0;
-    struct dirent *e;
-    int found = 0;
-    while ((e = readdir(d)))
-        if (!strcasecmp(e->d_name, "CONFIG.INI")) { found = 1; break; }
-    closedir(d);
-    return found;
+    return sys_dir_has(dir, "CONFIG.INI");
 }
 
 /* M4 zero-config (design §5): resolve g_exe_dir (readlink /proc/self/exe -> dirname; argv[0] fallback),
@@ -156,17 +165,7 @@ static int dir_has_config_ini(const char *dir)
  * beside the exe, fall back to the dev Steam path; if that's absent too, fail clearly naming both. */
 static void resolve_paths(const char *argv0, int game_dir_given)
 {
-    static char exedir[1024];
-    ssize_t n = readlink("/proc/self/exe", exedir, sizeof exedir - 1);
-    if (n > 0)
-        exedir[n] = 0;
-    else
-        snprintf(exedir, sizeof exedir, "%s", argv0 ? argv0 : ".");
-    char *slash = strrchr(exedir, '/');
-    if (slash)
-        *slash = 0;
-    else
-        strcpy(exedir, ".");
+    const char *exedir = sys_exe_dir(argv0);
     g_exe_dir = exedir;
 
     if (game_dir_given)
@@ -197,18 +196,11 @@ static void resolve_paths(const char *argv0, int game_dir_given)
 static void *game_main(void *arg)
 {
     (void)arg;
-    sigset_t s;
-    sigemptyset(&s);
-    sigaddset(&s, SIGALRM);
-    sigaddset(&s, SIGTERM);
-    sigaddset(&s, SIGUSR1);
-    pthread_sigmask(SIG_UNBLOCK, &s, NULL);
-    /* standalone runs FLAT (no game LDT selectors loaded), so fs/gs during game execution are this
-     * thread's glibc TLS. The SIGALRM/SIGTERM handlers swap fs/gs to g_host_fs/g_host_gs — which
-     * must therefore be THIS thread's TLS (making the swap a true no-op), NOT main()'s TLS, or libc
-     * called from the handler would read the wrong thread's TLS. Re-capture them on the game thread. */
-    __asm__ volatile("mov %%fs, %0" : "=r"(g_host_fs));
-    __asm__ volatile("mov %%gs, %0" : "=r"(g_host_gs));
+    /* Per-OS thread entry: where the tick is a per-thread async signal this unblocks
+     * it here (so it lands on this thread only) and recaptures this thread's TLS
+     * selectors for the handler swap; where the tick is produced otherwise it is a
+     * no-op. See the seam's sys_game_thread_enter. */
+    sys_game_thread_enter();
     roth_boot();
     LOGE("game_main: roth_boot returned — game exited (code %d)\n", g_exit_code);
     sfx_trace_exit_dump();   /* SFX-dropout trace: windowed clean-quit flush (game thread, quiesced) */
@@ -219,7 +211,11 @@ static void *game_main(void *arg)
 #endif /* ROTH_STANDALONE */
 
 /* ---------------------------------------------------------------- LDT -- */
-
+/* Here the selectors are backed by a real hardware descriptor table. Platforms without runtime
+ * descriptor-table access provide a pure-software selector ledger with the same interface (the
+ * far-pointer services resolve selectors to linear addresses in software either way); those bodies
+ * live in the per-OS seam. */
+#ifndef _WIN32
 static int modify_ldt_write(struct user_desc *d)
 {
     return (int)syscall(SYS_modify_ldt, 0x11, d, sizeof *d);
@@ -302,6 +298,7 @@ void map_fixed(uint32_t base, uint32_t size, int prot)
         exit(1);
     }
 }
+#endif /* !_WIN32 — descriptor-table + fixed-mapping bodies (the seam provides the Windows ones) */
 
 /* load_blob / build_psp_env / enter_game / restore_host_segments load + jump into the ORIGINAL
  * ROTH.EXE object images — used ONLY by the trap-host boot (main()'s #else branch). Under
@@ -381,9 +378,10 @@ static void restore_host_segments(void)
 #endif /* !ROTH_STANDALONE */
 
 /* SIGTERM: dump the mode-13h framebuffer as PPM and exit — headless
- * "screenshot" until the SDL window exists. */
+ * "screenshot" until the SDL window exists. Signal-driven dev instrument; POSIX platforms only. */
 extern uint8_t g_dac_rgb[768];
 
+#ifndef _WIN32
 static void dump_screen(int sig)
 {
     (void)sig;
@@ -432,14 +430,17 @@ static void show_eip(int sig, siginfo_t *si, void *ucv)
                      eip - OBJ_DELTA);
     write(2, buf, (size_t)n);
 }
+#endif /* !_WIN32 — signal-driven screenshot/EIP-probe instruments */
 
 int main(int argc, char **argv)
 {
+#ifndef _WIN32
     signal(SIGTERM, dump_screen);
     struct sigaction pa = {0};
     pa.sa_sigaction = show_eip;
     pa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGUSR1, &pa, NULL);
+#endif
     const char *obj_paths[3] = {
         "recomp/build/obj1.bin", "recomp/build/obj2.bin", "recomp/build/obj3.bin",
     };
@@ -544,6 +545,12 @@ int main(int argc, char **argv)
      * /dev/shm/roth_fb framebuffer when headless (always) or ROTH_SHM=1 (both-mode under a window). */
     int want_window = !g_headless || g_sdl_flag;   /* default, --windowed, --sdl, or --headless --sdl */
     int want_shm    = g_headless  || g_want_shm;   /* --headless always; ROTH_SHM adds it to a window */
+#ifdef _WIN32
+    /* The no-window shared-memory publish path is a POSIX-only facility (it exists for an
+     * out-of-process viewer). This platform always runs the in-process window, so the headless
+     * branch below — which would leave the framebuffer unbacked here — is never taken. */
+    want_window = 1;
+#endif
 
     if (!want_window) {
         /* --headless / ROTH_HEADLESS: byte-for-byte today's default — the game runs on the main
@@ -566,33 +573,34 @@ int main(int argc, char **argv)
     }
 
     /* Pick the framebuffer backing on the main thread BEFORE the game thread starts (design §3/§4):
-     * shm_open for the external-attach cases, a private anon map for the windowed default. */
-    if (want_shm)
-        shm_setup();   /* /dev/shm/roth_fb — window + roth-inject/viewer attach ("both") */
-    else
-        mem_setup();   /* private in-process framebuffer — windowed, no /dev/shm file */
+     * shm_open for the external-attach cases, a private anon map for the windowed default. The audio
+     * and MIDI rings follow the SAME decision (audio_select_backing, read by audio_init() on the game
+     * thread): private in-process rings for the windowed default, named shm objects when publishing
+     * for an external viewer. */
+#ifdef _WIN32
+    /* No shared-memory publish path on this platform: an out-of-process viewer is a POSIX-only
+     * facility. The framebuffer, the PCM ring and the MIDI ring are always the private in-process
+     * backing the window reads directly. */
+    (void)want_shm;
+    mem_setup();
+    audio_select_backing(1);
+#else
+    if (want_shm) {
+        shm_setup();              /* /dev/shm/roth_fb — window + roth-inject/viewer attach ("both") */
+        audio_select_backing(0);  /* /roth_audio + /roth_midi named objects, for the viewer */
+    } else {
+        mem_setup();              /* private in-process framebuffer — windowed, no /dev/shm file */
+        audio_select_backing(1);  /* private in-process audio/MIDI rings — windowed default */
+    }
+#endif
 
-    /* Block the game-thread signals on main so ITIMER_REAL / SIGTERM / SIGUSR1 are delivered to the
-     * game thread (the only one that unblocks them). The child inherits this mask at creation. SDL
-     * then owns a signal-quiet main thread (the SDL video subsystem must run on the thread that
-     * called SDL_Init). */
-    sigset_t block, oldmask;
-    sigemptyset(&block);
-    sigaddset(&block, SIGALRM);
-    sigaddset(&block, SIGTERM);
-    sigaddset(&block, SIGUSR1);
-    pthread_sigmask(SIG_BLOCK, &block, &oldmask);
-
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, 64 * 1024 * 1024);  /* generous: the game ran on the ~8 MB
-                                                          * main stack; give the child room to spare */
-    pthread_t game_tid;
-    int perr = pthread_create(&game_tid, &attr, game_main, NULL);
-    pthread_attr_destroy(&attr);
-    if (perr != 0) {
-        LOGE("pthread_create(game) failed (%d) — falling back to headless main-thread boot\n", perr);
-        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+    /* Start the game on its own thread; the main thread runs SDL's present/event loop. The seam
+     * makes the game thread the sole recipient of the periodic tick (and, where the tick is a
+     * per-thread signal, blocks it on this thread first so SDL owns a tick-quiet main thread — the
+     * SDL video subsystem must run on the thread that called SDL_Init). A generous stack: the game
+     * ran on the original's ~8 MB main stack; give the child room to spare. */
+    if (sys_spawn_game_thread(game_main, NULL, 64u * 1024 * 1024) != 0) {
+        LOGE("game-thread spawn failed — falling back to headless main-thread boot\n");
         roth_boot();
         sfx_trace_exit_dump();   /* SFX-dropout trace: fallback headless clean-quit flush */
         LOGE("game exited with code %d\n", g_exit_code);
@@ -606,7 +614,7 @@ int main(int argc, char **argv)
 
     if (g_shm)
         g_shm->quit = 1;   /* belt-and-suspenders: ask the game thread to exit if it hasn't */
-    pthread_join(game_tid, NULL);
+    sys_join_game_thread();
     LOGE("game exited with code %d\n", g_exit_code);
     return g_exit_code;
 #else

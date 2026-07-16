@@ -12,9 +12,64 @@
 # (A separate differential trap host — a development-only instrument used to validate this engine
 # against the original — is built elsewhere and is NOT part of this tree.)
 # Compatibility aliases `roth-host-imgfree` / `roth-host-vanilla` still build the current names (below).
-CC       := gcc
-CFLAGS   := -m32 -O1 -g -Wall -Wextra -D_GNU_SOURCE -fno-pie -fno-stack-protector
-LDFLAGS  := -m32 -no-pie -lrt
+# --- build axis: CROSS (empty = native Linux i386 ; 'mingw' = i686 Windows PE) ------------------
+# CROSS unset leaves every native line byte-identical (the else branch below == the pre-axis
+# values). CROSS=mingw swaps CC to the MinGW i686 cross-gcc, drops the ELF-isms (-m32/-no-pie/
+# -lrt), adds the PE placement flags (base the image low at 0x10000 with a zero-fill .arena section
+# so the loader's own image reservation pins the fixed arena before the CRT colonizes it, ASLR off;
+# NOT --disable-high-entropy-va — that is 64-bit-only, i686 ld rejects it and the link fails),
+# names the product rothc.exe (never roth.exe: on a case-insensitive FS it would clobber the original ROTH.EXE),
+# and links the win32 SDL import lib. Four never-shared object trees: build/, build-vanilla/,
+# build-mingw/, build-mingw-vanilla/.
+# rothc.exe is a windows-subsystem binary (no console window on double-click).
+# (Trailing whitespace before an inline comment is captured by := — keep such comments on their
+#  own line for any value that composes a filename, e.g. BINBASE below.)
+# Delete any target whose recipe fails, so a half-written output (e.g. a generated file cut short) is
+# never left behind for a later build to consume as up to date.
+.DELETE_ON_ERROR:
+
+WIN_SUBSYSTEM ?= windows
+CROSS ?=
+ifeq ($(CROSS),mingw)
+  XPFX     := i686-w64-mingw32-
+  CC       := $(XPFX)gcc
+  EXE      := .exe
+  # NEVER roth.exe — on a case-insensitive FS beside ROTH.EXE it would clobber the 1996 binary
+  BINBASE  := rothc
+  BUILDTAG := -mingw
+  # 32-bit is native to this toolchain: NO -m32. PE relocates via base relocs, so -fno-pie/-no-pie
+  # are ELF-only and dropped. _GNU_SOURCE kept for parity (harmless on mingw; feature-test only).
+  # -include src/platform/mingw_compat.h: force a compile prelude ahead of every unit on this axis.
+  # It renames the engine's own stricmp (int32_t(const uint8_t*,const uint8_t*)) away from the
+  # MinGW CRT's deprecated stricmp oldname (int(const char*,const char*)); glibc has no such alias,
+  # so the native build never needs it. See that header for the include-ordering rationale.
+  CFLAGS   := -O1 -g -Wall -Wextra -D_GNU_SOURCE -fno-stack-protector -include src/platform/mingw_compat.h
+  # The engine needs committed memory at fixed low addresses (a 1996 layout it stores absolute
+  # pointers into). Windows colonizes the low address space (heap, stacks, locale mappings) during
+  # startup before any app code runs, so those addresses can't be reserved after the fact. Instead
+  # the image itself pre-claims them: base it low (0x10000) with a generated linker script that
+  # carries a zero-fill .arena section over the fixed window, so the loader's own image reservation
+  # owns those addresses before the CRT can. --disable-dynamicbase keeps the preferred base; a
+  # runtime check (sys_win32.c) fails loud if the image relocates anyway. The -T linker script is
+  # appended after the flavor block below, where the per-flavor build dir (BUILD) is known.
+  LDFLAGS  := -Wl,--image-base,0x10000 -Wl,--disable-dynamicbase -m$(WIN_SUBSYSTEM)
+  SDL3_DIR := third_party/sdl3-win32
+  NM       := $(XPFX)nm
+  OBJDUMP  := $(XPFX)objdump
+  STRIP    := $(XPFX)strip
+else
+  XPFX     :=
+  CC       := gcc
+  EXE      :=
+  BINBASE  := roth
+  BUILDTAG :=
+  CFLAGS   := -m32 -O1 -g -Wall -Wextra -D_GNU_SOURCE -fno-pie -fno-stack-protector
+  LDFLAGS  := -m32 -no-pie -lrt
+  SDL3_DIR := third_party/sdl3-i386
+  NM       := nm
+  OBJDUMP  := objdump
+  STRIP    := strip
+endif
 
 ENGINE   := src/engine
 PLATFORM := src/platform
@@ -41,36 +96,73 @@ CFLAGS   += -I$(ENGINE) -I$(PLATFORM) -I$(DATA)
 # stale object from the other. Both keep the nm-clean gate.
 FLAVOR ?= moddable
 ifeq ($(FLAVOR),vanilla)
-  BUILD       := build-vanilla
-  PRODUCT_BIN := roth-vanilla
+  BUILD       := build$(BUILDTAG)-vanilla
+  PRODUCT_BIN := $(BINBASE)-vanilla$(EXE)
   CFLAGS      += -DROTH_VANILLA
 else ifeq ($(FLAVOR),moddable)
-  BUILD       := build
-  PRODUCT_BIN := roth
-  LDFLAGS     += -ldl               # the plugin loader's dlopen/dlsym (glibc>=2.34 folds into libc; explicit for -m32)
+  BUILD       := build$(BUILDTAG)
+  PRODUCT_BIN := $(BINBASE)$(EXE)
+  ifneq ($(CROSS),mingw)
+    LDFLAGS   += -ldl               # the plugin loader's dlopen/dlsym (glibc>=2.34 folds into libc; explicit for -m32). dlopen is in the win32 loader (kernel32) — drop -ldl on mingw.
+  endif
 else
   $(error FLAVOR must be 'moddable' or 'vanilla' (got '$(FLAVOR)'))
+endif
+
+# The low-image arena linker script (Windows only). Defined here, after BUILD is known, and
+# appended to the link so the loader pins the fixed arena (see the LDFLAGS note in the CROSS block).
+ifeq ($(CROSS),mingw)
+  ARENA_LD := $(BUILD)/win32_arena.ld
+  LDFLAGS  += -Wl,-T,$(ARENA_LD)
 endif
 
 # --- 32-bit SDL3 for the in-process window/audio ------------------------------------------------
 # tools/build_sdl3_i386.sh builds an i386 SDL3 into third_party/sdl3-i386/ (git-ignored).
 # It is wired into the roth game binary ONLY (never the --headless path): the SDL TU
-# (src/platform/sdl/sdl_host.c) compiles with -I$(SDL3_I386_INC) + -DROTH_STANDALONE, and the
+# (src/platform/sdl/sdl_host.c) compiles with -I$(SDL3_INC) + -DROTH_STANDALONE, and the
 # standalone link adds $(SDL_LDLIBS). Dev builds rpath at this install's lib/; the release ships a
 # $ORIGIN-rpath'd libSDL3.so.0 beside the exe. SDL symbols are SDL_* so the nm-clean
 # assertion below is unaffected.
-SDL3_I386_DIR := third_party/sdl3-i386
-SDL3_I386_INC := $(SDL3_I386_DIR)/include
-SDL3_I386_LIB := $(SDL3_I386_DIR)/lib
+# SDL3_DIR is set per-axis in the CROSS block above (sdl3-i386 native / sdl3-win32 mingw).
+SDL3_INC := $(SDL3_DIR)/include
+SDL3_LIB := $(SDL3_DIR)/lib
 # the in-process SDL3 window + audio consumer TUs + link libs (standalone only; -pthread for
 # the game thread; -lm for the TinySoundFont synth's float DSP in sdl_tsf.o).
 SDL_OBJS   := $(BUILD)/sdl_host.o $(BUILD)/sdl_audio.o $(BUILD)/sdl_tsf.o
-# DUAL rpath: '$ORIGIN' is searched FIRST so a libSDL3.so.0 bundled beside the binary (the
+ifeq ($(CROSS),mingw)
+# WINDOWS: -lSDL3 resolves the import lib libSDL3.dll.a; SDL3.dll is found beside rothc.exe at
+# runtime (the Windows loader default — no rpath/$ORIGIN analog). No -rpath (PE has none).
+# The MinGW support runtime is linked STATICALLY so the shipped folder is self-contained: the only
+# non-system DLL beside the exe is SDL3.dll. -static-libgcc folds libgcc into the image; the
+# -Bstatic..-Bdynamic pair links winpthreads (game_main is a pthread) INTO the exe instead of
+# depending on libwinpthread-1.dll, while leaving the system import libraries (kernel32, the UCRT)
+# dynamic. A blanket -static is deliberately NOT used: it would also force a static SDL3, which then
+# fails to link on unresolved COM/mmdevice imports.
+SDL_LDLIBS := -L$(SDL3_LIB) -lSDL3 -lm -static-libgcc -Wl,-Bstatic,-lwinpthread,-Bdynamic
+else
+# LINUX DUAL rpath: '$ORIGIN' is searched FIRST so a libSDL3.so.0 bundled beside the binary (the
 # `make dist` product folder) wins; in-tree that dir has no SDL, so the loader falls through to the
 # absolute third_party build path. The SAME roth binary therefore runs both in-tree and in dist/.
 # ('$$ORIGIN' -> make emits the literal $ORIGIN; the single quotes stop the shell expanding it.)
-SDL_LDLIBS := -pthread -L$(SDL3_I386_LIB) -lSDL3 -lm \
-              -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,$(abspath $(SDL3_I386_LIB))
+SDL_LDLIBS := -pthread -L$(SDL3_LIB) -lSDL3 -lm \
+              -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,$(abspath $(SDL3_LIB))
+endif
+
+# --- Windows application icon + version resource (CROSS=mingw only, optional) --------------------
+# rothc.exe embeds an application icon (and version info) when an icon file is present. The artwork
+# is a DROP-IN: place a Windows .ico at res/rothc.ico and the next `make CROSS=mingw ...` compiles it
+# into the executable automatically (Explorer and the taskbar show the first icon in the image). With
+# no icon file the build succeeds and links no resource — the executable is simply icon-less until
+# the art lands. windres is the PE resource compiler, so this is only ever active on the CROSS=mingw
+# axis; the native Linux build never references it and is unchanged.
+WIN_ICON    := res/rothc.ico
+WINDRES     := $(XPFX)windres
+WIN_RES_OBJ :=
+ifeq ($(CROSS),mingw)
+  ifneq ($(wildcard $(WIN_ICON)),)
+    WIN_RES_OBJ := $(BUILD)/rothc_res.o
+  endif
+endif
 
 # flag matrix:
 #   STANDALONE_CFLAGS  the verified engine TUs + traps (absolute/pinned-arena addressing; -DROTH_STANDALONE
@@ -109,10 +201,18 @@ PLATFORM_OBJS := $(BUILD)/dos.o $(BUILD)/dpmi.o $(BUILD)/audio.o $(BUILD)/audio_
                  $(BUILD)/os_audio_standalone.o
 # image-free-only host TUs
 STANDALONE_ONLY_OBJS := $(BUILD)/traps_if.o $(BUILD)/main_if.o $(BUILD)/boot.o
+# the per-OS system seam (the tick/timer + dl-compat + protect-exec + low-alloc + exe-dir + dir-enum,
+# plus the fixed-mapping arena and the software selector ledger). The POSIX bodies live in
+# sys/sys_posix.c; the Windows bodies in sys/sys_win32.c. Each axis links exactly one seam object.
+ifeq ($(CROSS),mingw)
+  PLATFORM_OS_OBJS := $(BUILD)/sys_win32.o
+else
+  PLATFORM_OS_OBJS := $(BUILD)/sys_posix.o
+endif
 # datac data-as-C the image-free link consumes (obj3_build overlays obj3_owned + reloc pass; obj1 arena)
 DATAC_OBJS := $(BUILD)/obj3_build_if.o $(BUILD)/obj3_data_if.o $(BUILD)/obj3_owned_if.o \
               $(BUILD)/obj1data_if.o $(BUILD)/obj1_owned_if.o
-STANDALONE_HOST_OBJS := $(PLATFORM_OBJS) $(STANDALONE_ONLY_OBJS) $(DATAC_OBJS)
+STANDALONE_HOST_OBJS := $(PLATFORM_OBJS) $(PLATFORM_OS_OBJS) $(STANDALONE_ONLY_OBJS) $(DATAC_OBJS)
 # There is no compile-time mod mechanism: mods are never selected or built at compile time. ALL mods
 # are runtime plugins (sdk/examples/), loaded by the platform below in the moddable flavor.
 
@@ -138,7 +238,7 @@ else
 MOD_LINK_OBJS := $(PLUGIN_OBJS) $(OVERRIDE_OBJS)
 endif
 
-.PHONY: all viewer clean dist roth-host-imgfree roth-host-vanilla
+.PHONY: all viewer clean dist dist-win _dist-win-guard roth-host-imgfree roth-host-vanilla
 all: $(PRODUCT_BIN)
 
 # compatibility aliases (old internal artifact names) — keep every pre-rename invocation working.
@@ -151,21 +251,49 @@ roth-host-vanilla: roth-vanilla         # compatibility alias -> the vanilla fla
 # instrument), but they are dead code in the standalone build — calltrace_init/capture_init are in
 # main.c's trap-only #else branch and the dispatch calls live in the gc'd int-trap servicer. They are
 # therefore NOT linked here. (Proven: nm on the result carries no calltrace_/capture_.)
-$(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS)
-	$(CC) $(LDFLAGS) -Wl,--gc-sections -o $@ $^ $(SDL_LDLIBS)
+$(PRODUCT_BIN): $(STANDALONE_HOST_OBJS) $(STANDALONE_LIFT_OBJS) $(MOD_LINK_OBJS) $(SDL_OBJS) $(WIN_RES_OBJ) $(ARENA_LD)
+	$(CC) $(LDFLAGS) -Wl,--gc-sections -o $@ $(filter-out $(ARENA_LD),$^) $(SDL_LDLIBS)
+ifeq ($(CROSS),mingw)
+	@echo "== nm-clean assertion (PE, underscore-aware): no original-bytes bridge (call_orig / lift_install / trampoline / int3 resume) =="
+	@# i686-PE prefixes C symbols with a leading underscore, so the native gate's raw grep would
+	@# silently miss _call_orig (a false PASS). Strip that decoration, then apply the SAME forbidden
+	@# list to defined globals only. Unlike the ELF linker, the PE linker's --gc-sections does not
+	@# drop a small set of unreferenced, fail-closed veneers (call_orig/call_orig_raw/call_orig_far
+	@# and the two NULL int3 suspend/resume function pointers): on the image-free path they bridge to
+	@# nothing (the far veneer aborts if ever entered), and the native gate over the identical sources
+	@# already proves nothing reaches them. They are enumerated and excused here; ANY other bridge
+	@# symbol — an install/live-swap trampoline, or a newly introduced one — survives the filter and
+	@# fails the gate.
+	@if $(NM) $@ | sed -E 's/^([0-9a-fA-F]+ [A-Za-z] )_/\1/' | awk '$$2 ~ /^[A-Z]$$/ {print $$3}' \
+	     | grep -wE 'call_orig|call_orig_raw|call_orig_far|lift_install|lift_resume_int3s|lift_suspend_int3s|g_os_resume_int3s|g_os_suspend_int3s|trampoline' \
+	     | grep -vxE 'call_orig|call_orig_raw|call_orig_far|g_os_resume_int3s|g_os_suspend_int3s' \
+	     | grep -v '^sos_user_callback_trampoline$$' | grep . ; then \
+	   echo "FAIL: image-free binary retains an original-bytes bridge symbol"; exit 1; \
+	 else echo "PASS: $(PRODUCT_BIN) is call_orig/lift_install/trampoline-free (bar the enumerated inert veneers)"; fi
+	@# PE arena geometry: base 0x10000, ASLR off, the zero-fill .arena over the fixed window, .text above it.
+	@$(TOOLS)/pe_arena_gate.sh $(OBJDUMP) $@ || (echo "FAIL: PE arena geometry gate"; exit 1)
+  ifeq ($(FLAVOR),moddable)
+	@echo "== override-registry pad validation (PE, moddable flavor) =="
+	@$(PY) $(TOOLS)/sdk_override_validate.py --pe --objdump $(OBJDUMP) $@ || (echo "FAIL: PE override pad validation"; exit 1)
+  else
+	@echo "== vanilla flavor: NO override pads (PE; mods impossible by construction) =="
+	@$(PY) $(TOOLS)/sdk_override_validate.py --pe --expect-no-pads --objdump $(OBJDUMP) $@ || (echo "FAIL: PE vanilla pad leak"; exit 1)
+  endif
+else
 	@echo "== nm-clean assertion (no original-bytes bridge: call_orig / lift_install / trampoline / int3 resume) =="
 	@if nm $@ | grep -wE 'call_orig|call_orig_raw|call_orig_far|lift_install|lift_resume_int3s|lift_suspend_int3s|g_os_resume_int3s|g_os_suspend_int3s|trampoline' | grep -v sos_user_callback_trampoline; then \
 	   echo "FAIL: image-free binary retains an original-bytes bridge symbol"; exit 1; \
 	 else echo "PASS: $(PRODUCT_BIN) is call_orig/lift_install/trampoline-free"; fi
-ifeq ($(FLAVOR),moddable)
+  ifeq ($(FLAVOR),moddable)
 	@echo "== override-registry pad validation (moddable flavor) =="
 	@$(PY) $(TOOLS)/sdk_override_validate.py $@ || (echo "FAIL: override pad validation"; exit 1)
-else
+  else
 	@echo "== vanilla flavor: NO override pads (mods impossible by construction) =="
 	@# readelf -SW (WIDE) so the long section name is not truncated (a plain -S clips it -> false pass).
 	@if readelf -SW $@ 2>/dev/null | grep -q __patchable_function_entries; then \
 	   echo "FAIL: vanilla binary unexpectedly has __patchable_function_entries"; exit 1; \
 	 else echo "PASS: $(PRODUCT_BIN) has no __patchable_function_entries section"; fi
+  endif
 endif
 
 viewer:
@@ -176,8 +304,11 @@ viewer:
 #   roth            the game binary (a stripped copy of the moddable roth binary) — resolves libSDL3 via the
 #                   '$ORIGIN' rpath baked into it, so the bundled lib beside it is found first
 #   libSDL3.so.0    a STRIPPED copy of the bundled i386 SDL3 (SONAME libSDL3.so.0)
-#   gm.sf2          the General MIDI SoundFont (GeneralUser GS) — replaceable (see README.txt)
-#   README.txt      install + usage note
+#   gm.sf2          the General MIDI SoundFont (GeneralUser GS) — replaceable (see README_ROTHC.txt)
+#   README_ROTHC.txt  install + usage note. Deliberately NOT README.txt: the game's own install
+#                   ships a README.TXT, and on a case-insensitive filesystem copying ours into the
+#                   game directory would overwrite it. The name must stay collision-free on BOTH
+#                   platforms (users move bundles across machines), so the Windows dist matches.
 # Install: copy the dist/ contents next to the ROTH game files (CONFIG.INI, ROTH.RES, DBASE*.DAT,
 # *.DAS) and run ./roth — with no args it uses the exe's own directory as the game dir.
 DIST := dist
@@ -190,8 +321,8 @@ original content files (ROTH.RES, DBASE*.DAT, *.DAS, CONFIG.INI). No DOSBox, no
 original executable bytes.
 
 INSTALL
-  1. Copy everything in this folder (roth, libSDL3.so.0, gm.sf2, README.txt) into
-     your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
+  1. Copy everything in this folder (roth, libSDL3.so.0, gm.sf2, README_ROTHC.txt)
+     into your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
   2. Run:  ./roth
      With no arguments it uses its own directory as the game directory and opens a
      window with video, input and audio. Close the window (or press the usual quit)
@@ -221,15 +352,80 @@ dist: roth
 	mkdir -p $(DIST)
 	cp roth $(DIST)/roth
 	strip $(DIST)/roth
-	cp $(realpath $(SDL3_I386_LIB)/libSDL3.so.0) $(DIST)/libSDL3.so.0
+	cp $(realpath $(SDL3_LIB)/libSDL3.so.0) $(DIST)/libSDL3.so.0
 	chmod u+w $(DIST)/libSDL3.so.0
 	strip $(DIST)/libSDL3.so.0
 	cp $(PLATFORM)/viewer/gm.sf2 $(DIST)/gm.sf2
-	printf '%s\n' "$$DIST_README" > $(DIST)/README.txt
+	printf '%s\n' "$$DIST_README" > $(DIST)/README_ROTHC.txt
 	mkdir -p $(DIST)/mods   # drop plugin folders (mods/<name>/plugin.so) here at runtime
 	@echo "== dist/ built =="; ls -la $(DIST)
 	@echo "== dist/ ldd (libSDL3 must resolve to the bundled \$$ORIGIN copy) =="; \
 	 (cd $(DIST) && ldd ./roth | grep -i sdl3) || true
+
+# --- make CROSS=mingw dist-win: the shippable, self-contained Windows folder --------------------
+# Layout (dist-win/, git-ignored) — extract these beside the game files (CONFIG.INI, ROTH.RES,
+# DBASE*.DAT, *.DAS) and run rothc.exe:
+#   rothc.exe      the game executable (a stripped copy of the moddable Windows binary). The MinGW
+#                  support runtime is linked in statically, so no libwinpthread-1.dll / libgcc DLL
+#                  is needed beside it.
+#   SDL3.dll       the bundled Windows SDL3 (found automatically beside the exe by the loader)
+#   gm.sf2         the General MIDI SoundFont (GeneralUser GS) — replaceable (see README_ROTHC.txt)
+#   README_ROTHC.txt  install + usage note. NOT README.txt — the game's install ships README.TXT
+#                  and Windows filenames are case-insensitive, so that name would overwrite it.
+#   mods/          empty; drop plugin folders (mods/<name>/plugin.dll) here at runtime
+# Invoke on the CROSS axis: `make -C roth_c CROSS=mingw dist-win` (the guard below enforces it so
+# PRODUCT_BIN, STRIP and the moddable flavor resolve to their Windows values).
+DIST_WIN := dist-win
+define DIST_README_WIN
+Realms of the Haunting — native host (image-free recompilation) — Windows
+=========================================================================
+
+A single self-contained executable that plays the game from the original content
+files (ROTH.RES, DBASE*.DAT, *.DAS, CONFIG.INI). No DOSBox, no original executable.
+
+INSTALL
+  1. Copy everything in this folder (rothc.exe, SDL3.dll, gm.sf2, README_ROTHC.txt)
+     into your ROTH game directory — the folder that contains CONFIG.INI and ROTH.RES.
+  2. Run:  rothc.exe
+     With no arguments it uses its own directory as the game directory and opens a
+     window with video, input and audio. Close the window (or press the usual quit)
+     to exit. Saves are written to ROTH\SAVEGAME\ exactly like the original.
+
+USEFUL OPTIONS
+  rothc.exe --game-dir DIR   play content in DIR instead of the exe's own folder
+  rothc.exe --scale N        initial window scale (also ROTH_SCALE=N)
+  ROTH_SF2=C:\path\to.sf2    use a different SoundFont for the MIDI music (see below)
+  ROTH_MIDI=0                disable the MIDI music (digital SFX/speech still play)
+
+SOUNDFONT (MIDI music)
+  The bundled gm.sf2 is "GeneralUser GS 2.0.3" by S. Christian Collins
+  (GeneralUser GS License v2.0, which permits redistribution). You may replace it
+  with any General MIDI .sf2: either overwrite gm.sf2 in this folder, or point
+  ROTH_SF2 at your own file. If no SoundFont is found the game runs without music.
+
+SDL3.dll
+  The bundled SDL3 is found automatically (it sits beside the executable). It is
+  unmodified upstream SDL3 (zlib license).
+endef
+export DIST_README_WIN
+
+# a guard prerequisite so a stray `make dist-win` (no CROSS) fails cleanly BEFORE building anything,
+# rather than composing a Linux binary into a Windows folder.
+_dist-win-guard:
+	@test "$(CROSS)" = "mingw" || { echo "dist-win requires CROSS=mingw (got CROSS='$(CROSS)')"; exit 1; }
+
+dist-win: _dist-win-guard $(PRODUCT_BIN)
+	rm -rf $(DIST_WIN)
+	mkdir -p $(DIST_WIN)
+	cp $(PRODUCT_BIN) $(DIST_WIN)/rothc.exe
+	$(STRIP) $(DIST_WIN)/rothc.exe
+	@# re-assert the arena geometry on the STRIPPED shipping exe (strip must not have disturbed it).
+	@$(TOOLS)/pe_arena_gate.sh $(OBJDUMP) $(DIST_WIN)/rothc.exe || (echo "FAIL: PE arena geometry gate (dist)"; exit 1)
+	cp third_party/sdl3-win32/bin/SDL3.dll $(DIST_WIN)/SDL3.dll
+	cp $(PLATFORM)/viewer/gm.sf2 $(DIST_WIN)/gm.sf2
+	printf '%s\n' "$$DIST_README_WIN" > $(DIST_WIN)/README_ROTHC.txt
+	mkdir -p $(DIST_WIN)/mods   # drop plugin folders (mods/<name>/plugin.dll) here at runtime
+	@echo "== dist-win/ built =="; ls -la $(DIST_WIN)
 
 ENGINE_HDRS := $(ENGINE)/engine.h $(ENGINE)/common.h $(ENGINE)/g_names.h
 
@@ -255,11 +451,11 @@ $(BUILD)/main_if.o: $(PLATFORM)/main.c $(PLATFORM)/sdl/sdl_host.h | $(BUILD)
 # the in-process SDL3 window (native SDL3; ROTH_STANDALONE + the SDL3 include path). Linked ONLY
 # into the roth game binary — the differential trap host never compiles or links this TU.
 $(BUILD)/sdl_host.o: $(PLATFORM)/sdl/sdl_host.c $(PLATFORM)/sdl/sdl_host.h $(PLATFORM)/sdl/sdl_audio.h $(PLATFORM)/shared_fb.h | $(BUILD)
-	$(CC) $(STANDALONE_CFLAGS) -I$(SDL3_I386_INC) -c -o $@ $<
+	$(CC) $(STANDALONE_CFLAGS) -I$(SDL3_INC) -c -o $@ $<
 # the in-process SDL3 audio consumer (PCM ring drain + MIDI->TSF), native SDL3. Full warnings.
 $(BUILD)/sdl_audio.o: $(PLATFORM)/sdl/sdl_audio.c $(PLATFORM)/sdl/sdl_audio.h $(PLATFORM)/viewer/tsf.h \
                       $(PLATFORM)/shared_audio.h $(PLATFORM)/shared_midi.h | $(BUILD)
-	$(CC) $(STANDALONE_CFLAGS) -I$(SDL3_I386_INC) -c -o $@ $<
+	$(CC) $(STANDALONE_CFLAGS) -I$(SDL3_INC) -c -o $@ $<
 # TinySoundFont implementation, isolated in its own object so the vendored header's warnings
 # (-w) can't trip the standalone warning-free gate; sdl_audio.o gets the extern prototypes only. No SDL,
 # no ROTH_STANDALONE — pure float DSP (linked with -lm via SDL_LDLIBS).
@@ -268,6 +464,23 @@ $(BUILD)/sdl_tsf.o: $(PLATFORM)/sdl/sdl_tsf.c $(PLATFORM)/viewer/tsf.h | $(BUILD
 # the image-free boot: maps the arena + host video/DOS, obj3_build's the data, binds OS-API/host hooks
 $(BUILD)/boot.o: $(PLATFORM)/boot.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+# the per-OS system seam, POSIX bodies (installs the SIGALRM tick handler; arms/retunes/stops the
+# interval timer). Lives under platform/sys/, compiled plain like the other native host services.
+$(BUILD)/sys_posix.o: $(PLATFORM)/sys/sys_posix.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+# the per-OS system seam, Windows bodies (loader/alloc/protect/dir/arena/selector primitives; the
+# periodic tick is a marked not-yet stub). Compiled plain; joins the link on the CROSS=mingw axis.
+$(BUILD)/sys_win32.o: $(PLATFORM)/sys/sys_win32.c $(PLATFORM)/sys/sys.h $(PLATFORM)/roth_host.h $(PLATFORM)/win32_compat.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+# the low-image arena linker script (see tools/gen_win32_arena_ld.sh + the LDFLAGS note above),
+# derived from the installed linker's own default PE script so it tracks the toolchain.
+$(ARENA_LD): $(TOOLS)/gen_win32_arena_ld.sh | $(BUILD)
+	$(TOOLS)/gen_win32_arena_ld.sh $(XPFX)ld $@
+# the Windows application icon/version resource -> COFF object. Compiled ONLY on CROSS=mingw and ONLY
+# when res/rothc.ico exists (WIN_RES_OBJ is empty otherwise, so this rule never fires and the link
+# carries no resource). Drop a Windows .ico at res/rothc.ico to brand the executable.
+$(BUILD)/rothc_res.o: res/rothc.rc $(WIN_ICON) | $(BUILD)
+	$(WINDRES) -I$(dir $(WIN_ICON)) $< -O coff -o $@
 
 # --- the always-native host services (plain CFLAGS) ---
 $(BUILD)/dos.o:                 $(PLATFORM)/dos.c                 | $(BUILD) ; $(CC) $(CFLAGS) -c -o $@ $<

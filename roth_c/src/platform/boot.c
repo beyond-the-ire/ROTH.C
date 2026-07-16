@@ -37,10 +37,12 @@ extern const int roth_ovr_target_count;   /* override_registry.c: # of eligible 
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#ifndef _WIN32
 #include <sys/mman.h>
 #include <sys/ucontext.h>
-#include <unistd.h>
 #include <execinfo.h>   /* ROTH_CRASH_DIAG backtrace */
+#endif
 
 extern uint32_t (*g_os_sel_base)(uint16_t);
 extern uint32_t (*g_os_soft_int)(uint8_t, regs_t *);
@@ -56,6 +58,9 @@ void host_gdv_publish_frame(void);        /* traps.c */
  * remaps that ONE page RW (contents survive mprotect — the staged bytes are intact) and retries.
  * A clean boot-to-title must fault ONLY at the enumerated boot-subset pages — anything else is a
  * new un-enumerated obj1-data access, caught loud with a precise address instead of a silent 0. */
+/* The fault-based obj1 audit and the render crash reporter are signal-delivered diagnostics; they are
+ * compiled on platforms that provide the fault-handler/backtrace machinery they use. */
+#ifndef _WIN32
 static void guard_hex(char *p, uint32_t v)
 {
     for (int i = 7; i >= 0; i--) { p[i] = "0123456789abcdef"[v & 0xf]; v >>= 4; }
@@ -138,6 +143,7 @@ static void crash_diag_fault(int sig, siginfo_t *si, void *uctx)
     signal(SIGSEGV, SIG_DFL);                    /* re-raise so a core is still produced */
     raise(SIGSEGV);
 }
+#endif /* !_WIN32 — signal-delivered obj1-guard + crash-diag handlers */
 
 void roth_boot(void)
 {
@@ -225,6 +231,7 @@ void roth_boot(void)
     }
 
     /* 2b. the fail-loud obj1 audit mode (see obj1_guard_fault above). */
+#ifndef _WIN32
     if (getenv("ROTH_OBJ1_GUARD")) {
         struct sigaction sa;
         memset(&sa, 0, sizeof sa);
@@ -234,6 +241,7 @@ void roth_boot(void)
         mprotect((void *)(uintptr_t)OBJ1_BASE, OBJ2_BASE - OBJ1_BASE, PROT_NONE);
         LOGE("ROTH_OBJ1_GUARD=1: obj1 arena PROT_NONE — per-page first-touch audit armed\n");
     }
+#endif
 
     /* 3. CRT-min (Q1): the one byte the game reads — g_dos_major (the CRT's int21 AH=30 store). errno /
      *    _doserrno are arena BSS (free). No _cstart_ runs. */
@@ -261,6 +269,7 @@ void roth_boot(void)
     shm_setup();
 
     /* 6a2. ROTH_CRASH_DIAG: arm the in-game crash reporter (g_os_sel_base is set by step 4). */
+#ifndef _WIN32
     if (getenv("ROTH_CRASH_DIAG")) {
         struct sigaction sa;
         memset(&sa, 0, sizeof sa);
@@ -269,6 +278,7 @@ void roth_boot(void)
         sigaction(SIGSEGV, &sa, NULL);
         LOGE("ROTH_CRASH_DIAG=1: SIGSEGV crash reporter armed (dumps render-target + secondary-surface state)\n");
     }
+#endif
 
     /* 6b. THE PLUGIN PLATFORM (task #103, the two-flavor ruling) — boot-order LAW (MODS_PLATFORM.md
      *     §10.3 / §12): ALL plugin discovery/validation/load + the MAIN lifecycle callbacks +
@@ -384,3 +394,24 @@ uint32_t os_audio_gdv_load_drivers(void)
                                     "image-free — parked, returning 0 (title music may lag)\n"); }
     return 0;
 }
+
+#ifdef _WIN32
+/* The original-image call-bridge leaves (call_orig_raw / call_orig_far) are defined only by the
+ * differential host that runs original machine code; the image-free product never bridges into
+ * original CODE, so the engine's interactive-lift heartbeat + MIDI-under-swap surrogates that would
+ * call them are unreachable image-free (their call sites are compiled out or gated off). Where the
+ * linker does not garbage-collect that unreferenced bridge, these fail-loud stubs stand in for the
+ * missing leaves so the image-free link resolves; a reach here would mean the standalone tried to run
+ * original bytes that were never mapped, and it stops loudly. */
+void call_orig_raw(regs_t *io)
+{
+    (void)io;
+    LOGE("call_orig_raw reached on the image-free path (no original CODE bytes mapped) — aborting\n");
+    abort();
+}
+void call_orig_far(uint32_t va)
+{
+    LOGE("call_orig_far(0x%x) reached on the image-free path (no original CODE bytes mapped) — aborting\n", va);
+    abort();
+}
+#endif /* _WIN32 — dead original-image bridge leaves the linker did not collect */

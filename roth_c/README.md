@@ -1,9 +1,7 @@
 # roth_c — the engine and its native host
 
-> **NOTE:** This is currently only usable on Linux x86 systems! Windows is coming soon.
-
-This tree builds `roth`, the native executable that runs _Realms of the Haunting_ from its
-original game files. It has three parts:
+This tree builds `roth` (Linux) and `rothc.exe` (Windows), the native executable that runs
+_Realms of the Haunting_ from its original game files. It has three parts:
 
 | path            | contents                                                                                                                                          |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,13 +31,52 @@ Then one of these:
 make                    # the default mod-ready engine (roth)
 make FLAVOR=vanilla     # the vanilla engine (roth-vanilla): no mod infrastructure at all
 make dist               # the release bundle in dist/: stripped `roth`, bundled libSDL3.so.0,
-                        # gm.sf2, README.txt, and an empty mods/ folder
+                        # gm.sf2, README_ROTHC.txt, and an empty mods/ folder
 make viewer             # optional: the headless-mode dev viewer (needs system SDL2)
 ```
 
 The link self-checks: the moddable binary asserts it contains the mod platform's function
 padding, the vanilla binary asserts it contains none, and both assert the absence of
 development-harness symbols.
+
+### The Windows build (`CROSS=mingw`)
+
+The Windows executable is cross-compiled from Linux with the MinGW i686 toolchain
+(`i686-w64-mingw32-gcc`; package `gcc-mingw-w64-i686` on Debian/Ubuntu). One-time prerequisite,
+the win32 SDL3:
+
+```
+../tools/build_sdl3_win32.sh    # builds third_party/sdl3-win32 (needs cmake, git, network)
+```
+
+Then the same targets with `CROSS=mingw`:
+
+```
+make CROSS=mingw                    # the mod-ready Windows engine (rothc.exe)
+make CROSS=mingw FLAVOR=vanilla     # the vanilla Windows engine (rothc-vanilla.exe)
+make CROSS=mingw dist-win           # the Windows bundle in dist-win/: stripped rothc.exe,
+                                    # SDL3.dll, gm.sf2, README_ROTHC.txt, and an empty mods/ folder
+```
+
+Building **on** a Windows PC: run the same cross-build inside
+[WSL](https://learn.microsoft.com/windows/wsl/) — it is a full Linux environment, the
+instructions above apply unchanged, and the resulting `rothc.exe` runs directly on the same
+machine. A native MSYS2 build has not been validated.
+
+Windows-specific notes:
+
+- The engine stores absolute pointers in its reconstructed data, so it requires real memory at a
+  set of fixed low addresses. On Windows the executable itself is laid out to make the loader
+  reserve them: it is based low with a zero-fill `.arena` section covering the fixed window (a
+  generated linker script — `tools/gen_win32_arena_ld.sh` — places it) and ASLR disabled. A
+  post-link gate (`tools/pe_arena_gate.sh`) re-checks that geometry on every build, and the
+  engine validates it again at startup. If you change link flags or the toolchain and the gate
+  fails, that is the gate doing its job.
+- `rothc.exe` is a windowed program (no console). To capture its log output, run it from a
+  command prompt as `rothc.exe > log.txt 2>&1`. The `--trace` switch additionally logs every
+  DOS-era service call the engine makes — the first tool to reach for on file or path problems.
+- The application icon and version resource embed automatically when `res/rothc.ico` exists;
+  without it the build is simply icon-less.
 
 ## Running
 

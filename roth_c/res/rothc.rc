@@ -1,0 +1,37 @@
+/* rothc.exe Windows resources — application icon + version information.
+ *
+ * This file is compiled by windres into the executable ONLY on the Windows (CROSS=mingw) build, and
+ * ONLY when res/rothc.ico is present (the Makefile gates the resource on that file). To brand the
+ * executable, drop a Windows .ico at res/rothc.ico and rebuild: the first ICON below becomes the
+ * Explorer / taskbar icon and the version block appears on the file's Properties -> Details page.
+ * With no res/rothc.ico present the resource is not compiled and the executable links without it.
+ */
+#include <windows.h>
+
+/* The application icon (lowest numeric ID wins as the process / executable icon). */
+1 ICON "rothc.ico"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION    0,6,0,0
+  PRODUCTVERSION 0,6,0,0
+  FILEFLAGSMASK  0x3fL
+  FILEFLAGS      0x0L
+  FILEOS         VOS__WINDOWS32
+  FILETYPE       VFT_APP
+  FILESUBTYPE    0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "FileDescription", "Realms of the Haunting - native host"
+      VALUE "FileVersion",     "0.6.0"
+      VALUE "ProductName",     "ROTH.C"
+      VALUE "ProductVersion",  "0.6.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

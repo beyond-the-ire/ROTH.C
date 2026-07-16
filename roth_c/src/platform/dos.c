@@ -5,10 +5,16 @@
 
 #include <ctype.h>
 #include <fcntl.h>
-#include <fnmatch.h>
+#ifndef O_BINARY
+#define O_BINARY 0   /* hosts without a text/binary file-mode distinction (POSIX) read verbatim */
+#endif
+#ifndef _WIN32
+#include <fnmatch.h>   /* the Windows build gets a compact fnmatch via roth_host.h */
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -70,9 +76,14 @@ static const char *c_root(void)
     if (!root[0]) {
         snprintf(root, sizeof root, "%s", g_game_dir);
         size_t n = strlen(root);
-        while (n > 1 && root[n - 1] == '/')
+        /* g_game_dir may use either path separator (a Windows install dir arrives with
+         * backslashes); strip the final component regardless of which one is in use. */
+        while (n > 1 && (root[n - 1] == '/' || root[n - 1] == '\\'))
             root[--n] = 0;
         char *slash = strrchr(root, '/');
+        char *bslash = strrchr(root, '\\');
+        if (bslash > slash)
+            slash = bslash;
         if (slash && slash != root)
             *slash = 0;
         else
@@ -146,7 +157,11 @@ static int translate_open(const char *dospath, int flags, mode_t mode)
     if (resolve_dos_path(dospath, full, sizeof full,
                          (flags & O_CREAT) != 0) != 0)
         return -1;
-    return open(full, flags, mode);
+    /* DOS has no text/binary distinction — every byte is read verbatim. Some hosts (Windows)
+     * default file descriptors to a text translation that stops a read at the first 0x1A byte and
+     * folds CR/LF, which silently truncates the game's binary data files. Force binary so reads
+     * return the whole file. O_BINARY is absent (and a no-op) where the host is already binary. */
+    return open(full, flags | O_BINARY, mode);
 }
 
 /* ---- DOS findfirst/findnext (AH=4E/4F) -----------------------------------
@@ -438,6 +453,25 @@ void dos_int21(cpu_t *c)
             LOGT("int21 56 rename '%s' -> '%s' failed\n", df, dt);
             set_cf(c, 1);
             R_EAX(c) = 2;
+        }
+        break;
+    }
+    case 0x39: { /* create directory (MKDIR) — the game builds its SAVEGAME dir on first save */
+        char full[1024];
+        int rc = -1;
+        if (resolve_dos_path((const char *)R_EDX(c), full, sizeof full, 1) == 0)
+#ifdef _WIN32
+            rc = mkdir(full);
+#else
+            rc = mkdir(full, 0755);
+#endif
+        LOGT("int21 39 mkdir '%s' -> %d\n", (const char *)R_EDX(c), rc);
+        if (rc == 0 || (rc != 0 && errno == EEXIST)) {  /* created, or already present */
+            set_cf(c, 0);
+            R_EAX(c) = 0;
+        } else {
+            set_cf(c, 1);
+            R_EAX(c) = 3; /* path not found */
         }
         break;
     }

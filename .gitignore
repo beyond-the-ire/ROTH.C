@@ -1,9 +1,12 @@
 # build outputs
 roth_c/build/
 roth_c/build-vanilla/
+roth_c/build-mingw/
+roth_c/build-mingw-vanilla/
 roth_c/roth-host-imgfree
 roth_c/roth-host-vanilla
 roth_c/dist/
+roth_c/dist-win/
 roth_c/src/platform/viewer/roth-view
 roth_c/src/platform/viewer/roth-inject
 *.o
@@ -13,3 +16,13 @@ roth_c/third_party/
 
 # built example plugins (sources are tracked; binaries are not)
 sdk/examples/*/plugin.so
+sdk/examples/*/plugin.dll
+
+# tool caches
+tools/__pycache__/
+
+# built game binaries (all axes)
+/roth_c/roth
+/roth_c/roth-vanilla
+/roth_c/rothc.exe
+/roth_c/rothc-vanilla.exe
