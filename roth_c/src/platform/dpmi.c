@@ -40,7 +40,12 @@ static uint32_t g_exc_handler[32];
 #define DOSMEM_POOL_LIN (DOSMEM_LIN)
 #endif
 
-static uint32_t g_dosmem_brk = DOSMEM_POOL_LIN;
+/* The DOS allocation break starts one paragraph into the pool: the first paragraph
+ * (DOSMEM_POOL_LIN .. +0x10) is reserved for the DBCS lead-byte table that the int21 AH=63 handler
+ * publishes at DOSMEM_POOL_LIN. Were the break to start at DOSMEM_POOL_LIN, that address would also
+ * be handed out as the first DOS allocation, and a later AH=63 call would memset those bytes inside
+ * live game memory. Reserving the paragraph keeps the table's home clear of any allocation. */
+static uint32_t g_dosmem_brk = DOSMEM_POOL_LIN + 0x10;
 
 /* ---- VESA / VBE modes ---------------------------------------------------
  * Modes we advertise to the game's mode enumerator (match_vesa_video_modes
