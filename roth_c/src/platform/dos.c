@@ -75,9 +75,14 @@ static const char *c_root(void)
     if (!root[0]) {
         snprintf(root, sizeof root, "%s", g_game_dir);
         size_t n = strlen(root);
-        while (n > 1 && root[n - 1] == '/')
+        /* g_game_dir may use either path separator (a Windows install dir arrives with
+         * backslashes); strip the final component regardless of which one is in use. */
+        while (n > 1 && (root[n - 1] == '/' || root[n - 1] == '\\'))
             root[--n] = 0;
         char *slash = strrchr(root, '/');
+        char *bslash = strrchr(root, '\\');
+        if (bslash > slash)
+            slash = bslash;
         if (slash && slash != root)
             *slash = 0;
         else
